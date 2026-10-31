@@ -1,0 +1,21 @@
+{
+  "short_name": "Financeiro Express",
+  "name": "Financeiro Express - Controle Pessoal & Metas",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "192x192 512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#06080F",
+  "theme_color": "#06080F",
+  "display": "standalone",
+  "orientation": "portrait",
+  "scope": "/",
+  "lang": "pt-BR",
+  "categories": ["finance", "productivity", "utilities"]
+}
+
