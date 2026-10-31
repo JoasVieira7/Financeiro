@@ -91,13 +91,14 @@ interface FinanceContextType {
   deleteSavingsGoal: (goalId: string) => Promise<void>;
   getGoalContributions: (goalId: string) => GoalContribution[];
   updateCategoryLimit: (category: TransactionCategory, limit: number) => Promise<void>;
+  toggleGoalCompleted: (goalId: string) => Promise<{ success: boolean; error?: string }>;
   addRecurringExpense: (
     description: string,
     amount: number,
     category: TransactionCategory,
     paymentMethod: PaymentMethod,
     dueDay: number
-  ) => Promise<void>;
+  ) => Promise<{ success: boolean; error?: string }>;
   deleteRecurringExpense: (id: string) => Promise<void>;
   toggleRecurringExpense: (id: string) => Promise<void>;
   refreshData: () => Promise<void>;
@@ -530,13 +531,16 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return { success: false, error: 'O valor objetivo deve ser maior que zero.' };
     }
 
-    // Check free plan limits (2 goals max on free tier)
+    // Check free plan limits (2 active goals max on free tier, completed goals don't count)
     const currentTier = profile?.plan_tier || 'free';
     const limit = PLAN_LIMITS[currentTier].maxGoals;
-    if (goals.length >= limit) {
+    const activeGoals = goals.filter(
+      g => (g.current_amount || 0) < g.target_amount && !g.is_completed
+    );
+    if (activeGoals.length >= limit) {
       return {
         success: false,
-        error: `O plano gratuito permite até ${limit} metas de economia ativas. Faça upgrade para o Plano Premium para metas ilimitadas.`,
+        error: `O plano gratuito permite até ${limit} metas ativas simultâneas. Conclua uma meta existente ou faça upgrade para o Plano Premium.`,
       };
     }
 
@@ -549,6 +553,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       deadline,
       icon,
       color,
+      is_completed: false,
       category: 'reserva',
       created_at: new Date().toISOString(),
     };
@@ -565,14 +570,78 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
           deadline: newGoal.deadline,
           icon: newGoal.icon,
           color: newGoal.color,
+          is_completed: false,
         },
       ]);
-      if (error) return { success: false, error: error.message };
+      if (error) {
+        // Reverte estado local se o backend rejeitar
+        setGoals(prev => prev.filter(g => g.id !== newGoal.id));
+        return { success: false, error: error.message };
+      }
     } else {
       const storedGoals = localStorage.getItem(LOCAL_STORAGE_GOALS_KEY);
       const allGoals: SavingsGoal[] = storedGoals ? JSON.parse(storedGoals) : [];
       allGoals.unshift(newGoal);
       localStorage.setItem(LOCAL_STORAGE_GOALS_KEY, JSON.stringify(allGoals));
+    }
+
+    return { success: true };
+  };
+
+  const toggleGoalCompleted = async (goalId: string): Promise<{ success: boolean; error?: string }> => {
+    const targetGoal = goals.find(g => g.id === goalId);
+    if (!targetGoal) return { success: false, error: 'Meta não encontrada.' };
+
+    const nextCompleted = !targetGoal.is_completed;
+
+    // Regra consistente: impede marcar como concluída meta sem saldo acumulado
+    if (nextCompleted && (targetGoal.current_amount || 0) === 0) {
+      return {
+        success: false,
+        error: 'Uma meta com saldo zero não pode ser marcada como concluída. Caso queira cancelá-la, exclua a meta.',
+      };
+    }
+
+    // Se estiver reabrindo como ativa, valida o limite do plano Free
+    if (!nextCompleted) {
+      const currentTier = profile?.plan_tier || 'free';
+      const limit = PLAN_LIMITS[currentTier].maxGoals;
+      const otherActiveGoals = goals.filter(
+        g => g.id !== goalId && (g.current_amount || 0) < g.target_amount && !g.is_completed
+      );
+      if (otherActiveGoals.length >= limit) {
+        return {
+          success: false,
+          error: `Você já possui ${limit} metas ativas no plano Free. Conclua outra meta ou faça upgrade para reabrir esta.`,
+        };
+      }
+    }
+
+    setGoals(prev =>
+      prev.map(g => (g.id === goalId ? { ...g, is_completed: nextCompleted } : g))
+    );
+
+    if (isSupabaseConfigured && !isDemo) {
+      const { error } = await supabase
+        .from('savings_goals')
+        .update({ is_completed: nextCompleted })
+        .eq('id', goalId);
+      if (error) {
+        // Reverte estado local em caso de erro
+        setGoals(prev =>
+          prev.map(g => (g.id === goalId ? { ...g, is_completed: targetGoal.is_completed } : g))
+        );
+        return { success: false, error: error.message };
+      }
+    } else {
+      const storedGoals = localStorage.getItem(LOCAL_STORAGE_GOALS_KEY);
+      if (storedGoals) {
+        const allGoals: SavingsGoal[] = JSON.parse(storedGoals);
+        const updated = allGoals.map(g =>
+          g.id === goalId ? { ...g, is_completed: nextCompleted } : g
+        );
+        localStorage.setItem(LOCAL_STORAGE_GOALS_KEY, JSON.stringify(updated));
+      }
     }
 
     return { success: true };
@@ -625,6 +694,13 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return { success: false, error: 'Meta não encontrada.' };
     }
 
+    if (type === 'deposit' && targetGoal.is_completed && targetGoal.current_amount >= targetGoal.target_amount) {
+      return {
+        success: false,
+        error: 'Esta meta já atingiu 100% e está concluída. Reabra ou crie uma nova meta para novos depósitos.',
+      };
+    }
+
     if (type === 'withdraw' && targetGoal.current_amount < numAmount) {
       return {
         success: false,
@@ -636,10 +712,13 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       type === 'deposit'
         ? targetGoal.current_amount + numAmount
         : targetGoal.current_amount - numAmount;
+    const isNowCompleted = nextAmount >= targetGoal.target_amount ? true : targetGoal.is_completed;
 
-    // Update goal amount
+    // Update goal amount and completion state
     setGoals(prev =>
-      prev.map(g => (g.id === goalId ? { ...g, current_amount: nextAmount } : g))
+      prev.map(g =>
+        g.id === goalId ? { ...g, current_amount: nextAmount, is_completed: isNowCompleted } : g
+      )
     );
 
     // Create contribution log
@@ -755,8 +834,17 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     category: TransactionCategory,
     paymentMethod: PaymentMethod,
     dueDay: number
-  ) => {
-    if (!user) return;
+  ): Promise<{ success: boolean; error?: string }> => {
+    if (!user) return { success: false, error: 'Usuário não autenticado' };
+
+    // Enforcement do plano Premium no client-side
+    const currentTier = profile?.plan_tier || 'free';
+    if (currentTier !== 'premium') {
+      return {
+        success: false,
+        error: 'Despesas recorrentes são exclusivas do Plano Premium. Faça upgrade para desbloquear.',
+      };
+    }
 
     const newRec: RecurringExpense = {
       id: `rec-${Date.now()}`,
@@ -773,7 +861,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setRecurringExpenses(prev => [...prev, newRec]);
 
     if (isSupabaseConfigured && !isDemo) {
-      await supabase.from('recurring_expenses').insert([
+      const { error } = await supabase.from('recurring_expenses').insert([
         {
           user_id: user.id,
           description: newRec.description,
@@ -784,12 +872,19 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
           is_active: true,
         },
       ]);
+      if (error) {
+        // Reverte estado local se o backend rejeitar
+        setRecurringExpenses(prev => prev.filter(r => r.id !== newRec.id));
+        return { success: false, error: error.message };
+      }
     } else {
       const stored = localStorage.getItem(LOCAL_STORAGE_RECURRING_KEY);
       const all: RecurringExpense[] = stored ? JSON.parse(stored) : [];
       all.push(newRec);
       localStorage.setItem(LOCAL_STORAGE_RECURRING_KEY, JSON.stringify(all));
     }
+
+    return { success: true };
   };
 
   const deleteRecurringExpense = async (id: string) => {
@@ -1011,6 +1106,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         updateSavingsGoal,
         contributeToGoal,
         deleteSavingsGoal,
+        toggleGoalCompleted,
         getGoalContributions,
         updateCategoryLimit,
         addRecurringExpense,

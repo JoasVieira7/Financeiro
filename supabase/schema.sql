@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS public.savings_goals (
   icon text DEFAULT 'target',
   color text DEFAULT 'emerald',
   deadline date,
+  is_completed boolean DEFAULT false NOT NULL,
   created_at timestamptz DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
@@ -159,12 +160,44 @@ CREATE POLICY "Usuários gerenciam exclusivamente suas próprias metas"
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
 
--- 2.4 Políticas: recurring_expenses
+-- 2.4 Políticas: recurring_expenses (Exclusivo Premium para criação e edição)
+DROP POLICY IF EXISTS "Usuários Premium gerenciam despesas recorrentes" ON public.recurring_expenses;
 DROP POLICY IF EXISTS "Usuários gerenciam exclusivamente suas despesas recorrentes" ON public.recurring_expenses;
-CREATE POLICY "Usuários gerenciam exclusivamente suas despesas recorrentes"
-  ON public.recurring_expenses FOR ALL
-  USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Usuários podem ver suas despesas recorrentes"
+  ON public.recurring_expenses FOR SELECT
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Usuários Premium podem inserir despesas recorrentes"
+  ON public.recurring_expenses FOR INSERT
+  WITH CHECK (
+    auth.uid() = user_id
+    AND EXISTS (
+      SELECT 1 FROM public.profiles p
+      WHERE p.id = auth.uid() AND p.plan_tier = 'premium'
+    )
+  );
+
+CREATE POLICY "Usuários Premium podem atualizar suas despesas recorrentes"
+  ON public.recurring_expenses FOR UPDATE
+  USING (
+    auth.uid() = user_id
+    AND EXISTS (
+      SELECT 1 FROM public.profiles p
+      WHERE p.id = auth.uid() AND p.plan_tier = 'premium'
+    )
+  )
+  WITH CHECK (
+    auth.uid() = user_id
+    AND EXISTS (
+      SELECT 1 FROM public.profiles p
+      WHERE p.id = auth.uid() AND p.plan_tier = 'premium'
+    )
+  );
+
+CREATE POLICY "Usuários podem excluir suas despesas recorrentes"
+  ON public.recurring_expenses FOR DELETE
+  USING (auth.uid() = user_id);
 
 -- 2.5 Políticas: goal_contributions (Imutável: somente SELECT e INSERT)
 DROP POLICY IF EXISTS "Usuários gerenciam exclusivamente suas contribuições de metas" ON public.goal_contributions;
@@ -204,7 +237,7 @@ GRANT UPDATE (full_name, avatar_url, monthly_budget, weekly_saving_target) ON pu
 REVOKE ALL ON public.savings_goals FROM anon;
 GRANT SELECT, INSERT, DELETE ON public.savings_goals TO authenticated;
 REVOKE UPDATE ON public.savings_goals FROM authenticated;
-GRANT UPDATE (title, target_amount, icon, color, deadline) ON public.savings_goals TO authenticated;
+GRANT UPDATE (title, target_amount, icon, color, deadline, is_completed) ON public.savings_goals TO authenticated;
 
 -- 3.3 goal_contributions:
 -- anon: bloqueado 100%
@@ -274,13 +307,17 @@ BEGIN
   END;
 
   -- Se a requisição veio de um usuário comum (authenticated) ou anônimo,
-  -- ou se a role do banco não for admin/service_role:
-  IF v_jwt_role IN ('authenticated', 'anon')
-     OR (current_user NOT IN ('service_role', 'supabase_admin', 'postgres') AND v_jwt_role IS NULL) THEN
-    NEW.plan_tier := OLD.plan_tier;
-    NEW.subscription_status := OLD.subscription_status;
-    NEW.trial_ends_at := OLD.trial_ends_at;
-    NEW.current_period_end := OLD.current_period_end;
+  -- e tentou alterar o plano ou status de assinatura, rejeita estritamente:
+  IF (NEW.plan_tier IS DISTINCT FROM OLD.plan_tier)
+     OR (NEW.subscription_status IS DISTINCT FROM OLD.subscription_status)
+     OR (NEW.trial_ends_at IS DISTINCT FROM OLD.trial_ends_at)
+     OR (NEW.current_period_end IS DISTINCT FROM OLD.current_period_end) THEN
+
+    IF v_jwt_role IN ('authenticated', 'anon')
+       OR (current_user NOT IN ('service_role', 'supabase_admin', 'postgres') AND v_jwt_role IS NULL) THEN
+      RAISE EXCEPTION 'Acesso negado: a alteração de plano ou status de assinatura só pode ser realizada pelo serviço administrativo oficial.'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
   END IF;
 
   -- Protege campos estruturais imutáveis do perfil
@@ -380,6 +417,8 @@ SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_current numeric(12,2);
+  v_target numeric(12,2);
+  v_is_completed boolean;
   v_goal_user_id uuid;
   v_new_balance numeric(12,2);
   v_jwt_role text;
@@ -391,46 +430,67 @@ BEGIN
     v_jwt_role := NULL;
   END;
 
-  -- Validação de integridade do usuário chamador contra impersonação
-  IF v_jwt_role = 'authenticated' AND auth.uid() IS NOT NULL THEN
+  -- Validação estrita de integridade e autenticação
+  IF v_jwt_role IN ('authenticated', 'anon') THEN
+    IF auth.uid() IS NULL THEN
+      RAISE EXCEPTION 'Operação negada: usuário não autenticado.'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
     IF NEW.user_id != auth.uid() THEN
-      RAISE EXCEPTION 'Operação negada: o user_id informado não corresponde ao usuário autenticado.';
+      RAISE EXCEPTION 'Operação negada: o user_id informado não corresponde ao usuário autenticado.'
+        USING ERRCODE = 'insufficient_privilege';
     END IF;
   END IF;
 
   -- Validação estrita do valor
   IF NEW.amount <= 0 THEN
-    RAISE EXCEPTION 'O valor da contribuição deve ser maior que zero.';
+    RAISE EXCEPTION 'O valor da contribuição deve ser maior que zero.'
+      USING ERRCODE = 'check_violation';
   END IF;
 
   -- Trava a linha da meta com SELECT FOR UPDATE (garantia total contra race conditions)
-  SELECT current_amount, user_id INTO STRICT v_current, v_goal_user_id
+  SELECT current_amount, target_amount, is_completed, user_id
+    INTO STRICT v_current, v_target, v_is_completed, v_goal_user_id
     FROM public.savings_goals
     WHERE id = NEW.goal_id
     FOR UPDATE;
 
   -- Validação de propriedade: a meta deve pertencer ao mesmo usuário
   IF v_goal_user_id != NEW.user_id THEN
-    RAISE EXCEPTION 'Operação negada: a meta informada não pertence ao usuário.';
+    RAISE EXCEPTION 'Operação negada: a meta informada não pertence ao usuário.'
+      USING ERRCODE = 'insufficient_privilege';
   END IF;
 
   -- Lógica de cálculo com bloqueio absoluto de saldo negativo
   IF NEW.type = 'deposit' THEN
+    -- Impede novos depósitos em meta que já atingiu 100% (concluída)
+    IF v_is_completed = true AND v_current >= v_target THEN
+      RAISE EXCEPTION 'Esta meta já atingiu o objetivo de 100%%. Reabra ou crie uma nova meta para novos depósitos.'
+        USING ERRCODE = 'check_violation';
+    END IF;
+
     v_new_balance := v_current + NEW.amount;
   ELSIF NEW.type = 'withdraw' THEN
     IF NEW.amount > v_current THEN
       RAISE EXCEPTION 'Saldo insuficiente na meta. Saldo atual: R$ %, tentativa de retirada: R$ %',
         to_char(v_current, 'FM999G999G990D00'),
-        to_char(NEW.amount, 'FM999G999G990D00');
+        to_char(NEW.amount, 'FM999G999G990D00')
+        USING ERRCODE = 'check_violation';
     END IF;
     v_new_balance := v_current - NEW.amount;
   ELSE
-    RAISE EXCEPTION 'Tipo de contribuição inválido: %', NEW.type;
+    RAISE EXCEPTION 'Tipo de contribuição inválido: %', NEW.type
+      USING ERRCODE = 'invalid_parameter_value';
   END IF;
 
-  -- Atualização atômica do saldo da meta (dispara protect_goal_balance_trigger com pg_trigger_depth > 1)
+  -- Atualização atômica do saldo da meta e do status de conclusão caso tenha atingido o alvo
   UPDATE public.savings_goals
-    SET current_amount = v_new_balance
+    SET
+      current_amount = v_new_balance,
+      is_completed = CASE
+        WHEN v_new_balance >= v_target THEN true
+        ELSE is_completed
+      END
     WHERE id = NEW.goal_id;
 
   RETURN NEW;
@@ -514,6 +574,262 @@ BEGIN
 END;
 $$;
 
+-- ------------------------------------------------------------------------------
+-- 5.7 Enforcement de limite de metas (Máximo 2 ativas no Free, ilimitado no Premium)
+-- Lock FOR UPDATE no perfil previne race conditions
+-- ------------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION public.check_savings_goal_limit()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_plan_tier text;
+  v_active_count integer;
+  v_is_new_active boolean;
+  v_jwt_role text;
+BEGIN
+  -- Se o trigger foi disparado internamente por outra função (ex: apply_goal_contribution), não bloqueia
+  IF pg_trigger_depth() > 1 THEN
+    RETURN NEW;
+  END IF;
+
+  -- Obtém role do JWT
+  BEGIN
+    v_jwt_role := coalesce(auth.jwt() ->> 'role', auth.role());
+  EXCEPTION WHEN OTHERS THEN
+    v_jwt_role := NULL;
+  END;
+
+  -- Defesa em profundidade: validação estrita de autenticação e integridade do user_id
+  IF v_jwt_role IN ('authenticated', 'anon') THEN
+    IF auth.uid() IS NULL THEN
+      RAISE EXCEPTION 'Operação negada: usuário não autenticado.'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
+    IF TG_OP = 'INSERT' THEN
+      NEW.user_id := auth.uid();
+      -- Clientes SEMPRE iniciam meta com saldo zero
+      NEW.current_amount := 0.00;
+    ELSIF TG_OP = 'UPDATE' THEN
+      NEW.user_id := OLD.user_id;
+      NEW.current_amount := OLD.current_amount;
+    END IF;
+  END IF;
+
+  -- Proibição estrita: não permite marcar is_completed = true em meta com saldo 0
+  IF NEW.is_completed = true AND NEW.current_amount = 0 THEN
+    RAISE EXCEPTION 'Uma meta com saldo zero não pode ser marcada como concluída. Caso deseje cancelá-la, exclua a meta.'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  -- Se atingiu o alvo, força conclusão automática
+  IF NEW.current_amount >= NEW.target_amount THEN
+    NEW.is_completed := true;
+  END IF;
+
+  -- Determina se a meta é ativa (não concluída e com saldo menor que o alvo)
+  v_is_new_active := (COALESCE(NEW.is_completed, false) = false AND NEW.current_amount < NEW.target_amount);
+
+  -- Se a meta não for ativa, não consome limite
+  IF NOT v_is_new_active THEN
+    RETURN NEW;
+  END IF;
+
+  -- Se for UPDATE e a meta já era ativa anteriormente, não está adicionando nova meta ativa
+  IF TG_OP = 'UPDATE' THEN
+    IF (COALESCE(OLD.is_completed, false) = false AND OLD.current_amount < OLD.target_amount) THEN
+      RETURN NEW;
+    END IF;
+  END IF;
+
+  -- Lock no perfil do usuário para serializar requisições concorrentes
+  SELECT plan_tier INTO v_plan_tier
+  FROM public.profiles
+  WHERE id = NEW.user_id
+  FOR UPDATE;
+
+  IF v_plan_tier IS NULL THEN
+    v_plan_tier := 'free';
+  END IF;
+
+  -- Usuários Premium têm metas ilimitadas
+  IF v_plan_tier = 'premium' THEN
+    RETURN NEW;
+  END IF;
+
+  -- Conta metas ativas existentes do usuário
+  SELECT COUNT(*) INTO v_active_count
+  FROM public.savings_goals
+  WHERE user_id = NEW.user_id
+    AND id != COALESCE(NEW.id, '00000000-0000-0000-0000-000000000000'::uuid)
+    AND is_completed = false
+    AND current_amount < target_amount;
+
+  IF v_active_count >= 2 THEN
+    RAISE EXCEPTION 'Limite de metas ativas excedido. O plano gratuito permite no máximo 2 metas ativas simultâneas. Conclua uma meta existente ou faça upgrade para o Plano Premium.'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS check_savings_goal_limit_trigger ON public.savings_goals;
+CREATE TRIGGER check_savings_goal_limit_trigger
+  BEFORE INSERT OR UPDATE ON public.savings_goals
+  FOR EACH ROW EXECUTE FUNCTION public.check_savings_goal_limit();
+
+-- ------------------------------------------------------------------------------
+-- 5.8 Enforcement de Despesas Recorrentes (Exclusivo Premium e ciclo pós-downgrade)
+-- ------------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION public.check_recurring_expense_premium()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_plan_tier text;
+  v_jwt_role text;
+BEGIN
+  BEGIN
+    v_jwt_role := coalesce(auth.jwt() ->> 'role', auth.role());
+  EXCEPTION WHEN OTHERS THEN
+    v_jwt_role := NULL;
+  END;
+
+  -- Força autenticação e user_id pertencente ao usuário autenticado
+  IF v_jwt_role IN ('authenticated', 'anon') THEN
+    IF auth.uid() IS NULL THEN
+      RAISE EXCEPTION 'Operação negada: usuário não autenticado.'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
+    IF TG_OP = 'INSERT' THEN
+      NEW.user_id := auth.uid();
+    ELSIF TG_OP = 'UPDATE' THEN
+      NEW.user_id := OLD.user_id;
+    END IF;
+  END IF;
+
+  SELECT plan_tier INTO v_plan_tier
+  FROM public.profiles
+  WHERE id = NEW.user_id;
+
+  IF v_plan_tier IS NULL THEN
+    v_plan_tier := 'free';
+  END IF;
+
+  -- Premium tem acesso total
+  IF v_plan_tier = 'premium' THEN
+    RETURN NEW;
+  END IF;
+
+  -- Usuário Free:
+  -- 1. INSERT proibido
+  IF TG_OP = 'INSERT' THEN
+    RAISE EXCEPTION 'Despesas recorrentes são exclusivas do Plano Premium. Faça upgrade para cadastrar contas fixas e assinaturas.'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  -- 2. UPDATE pós-downgrade: permite apenas desativação (is_active = false)
+  IF TG_OP = 'UPDATE' THEN
+    IF NEW.is_active = true THEN
+      RAISE EXCEPTION 'Não é permitido reativar despesas recorrentes no Plano Gratuito. Faça upgrade para o Plano Premium.'
+        USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS check_recurring_expense_premium_trigger ON public.recurring_expenses;
+CREATE TRIGGER check_recurring_expense_premium_trigger
+  BEFORE INSERT OR UPDATE ON public.recurring_expenses
+  FOR EACH ROW EXECUTE FUNCTION public.check_recurring_expense_premium();
+
+-- ------------------------------------------------------------------------------
+-- 5.9 RPC Administrativa para Alteração de Plano (Webhooks / Service Role)
+-- ------------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION public.admin_set_user_plan(
+  p_user_id uuid,
+  p_plan_tier text,
+  p_subscription_status text DEFAULT 'active',
+  p_duration_days integer DEFAULT 30
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_jwt_role text;
+  v_is_authorized boolean := false;
+BEGIN
+  -- Extrai role do JWT PostgREST
+  BEGIN
+    v_jwt_role := coalesce(auth.jwt() ->> 'role', auth.role());
+  EXCEPTION WHEN OTHERS THEN
+    v_jwt_role := NULL;
+  END;
+
+  -- Validação estrita: somente service_role ou superusuário postgres
+  IF v_jwt_role IN ('service_role', 'supabase_admin') THEN
+    v_is_authorized := true;
+  ELSIF current_user IN ('service_role', 'supabase_admin', 'postgres') AND v_jwt_role IS NULL THEN
+    v_is_authorized := true;
+  END IF;
+
+  IF NOT v_is_authorized THEN
+    RAISE EXCEPTION 'Acesso negado: operação administrativa restrita à service_role oficial de pagamentos.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  IF p_user_id IS NULL THEN
+    RAISE EXCEPTION 'Parâmetro p_user_id é obrigatório.'
+      USING ERRCODE = 'invalid_parameter_value';
+  END IF;
+
+  IF p_plan_tier NOT IN ('free', 'premium') THEN
+    RAISE EXCEPTION 'Plano inválido: %. Valores aceitos: free, premium.', p_plan_tier
+      USING ERRCODE = 'invalid_parameter_value';
+  END IF;
+
+  IF p_subscription_status NOT IN ('active', 'trialing', 'past_due', 'canceled', 'inactive') THEN
+    RAISE EXCEPTION 'Status de assinatura inválido: %.', p_subscription_status
+      USING ERRCODE = 'invalid_parameter_value';
+  END IF;
+
+  IF p_duration_days IS NOT NULL AND p_duration_days <= 0 THEN
+    RAISE EXCEPTION 'Duração da assinatura em dias deve ser maior que zero.'
+      USING ERRCODE = 'invalid_parameter_value';
+  END IF;
+
+  UPDATE public.profiles
+  SET
+    plan_tier = p_plan_tier,
+    subscription_status = p_subscription_status,
+    current_period_end = CASE
+      WHEN p_plan_tier = 'premium' THEN timezone('utc'::text, now()) + (COALESCE(p_duration_days, 30) || ' days')::interval
+      ELSE NULL
+    END,
+    updated_at = timezone('utc'::text, now())
+  WHERE id = p_user_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Perfil de usuário não encontrado para o ID: %', p_user_id
+      USING ERRCODE = 'no_data_found';
+  END IF;
+END;
+$$;
+
 -- ==============================================================================
 -- 6. PROTEÇÃO DE ACESSO ÀS FUNÇÕES (REVOKE EXECUTE DE TRIGGERS VIA RPC)
 -- ==============================================================================
@@ -524,10 +840,16 @@ REVOKE ALL ON FUNCTION public.initialize_goal_balance() FROM PUBLIC, anon, authe
 REVOKE ALL ON FUNCTION public.protect_goal_balance() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.apply_goal_contribution() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.handle_new_user() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.check_savings_goal_limit() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.check_recurring_expense_premium() FROM PUBLIC, anon, authenticated;
 
 -- Apenas a RPC de exclusão pode ser executada por usuários autenticados:
 REVOKE ALL ON FUNCTION public.delete_user_account() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.delete_user_account() TO authenticated;
+
+-- Apenas service_role pode executar a RPC administrativa de alteração de plano:
+REVOKE ALL ON FUNCTION public.admin_set_user_plan(uuid, text, text, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_set_user_plan(uuid, text, text, integer) TO service_role;
 
 -- ==============================================================================
 -- 7. ROTEIRO DE TESTES DE VALIDAÇÃO (NÃO EXECUTAR AUTOMATICAMENTE)

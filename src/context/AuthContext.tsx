@@ -293,23 +293,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem(LOCAL_STORAGE_PROFILE_KEY);
   };
 
-  const updateProfilePlan = async (tier: 'free' | 'premium', status: SubscriptionStatus = 'active') => {
-    if (!profile) return;
-    const updated: UserProfile = {
-      ...profile,
-      plan_tier: tier,
-      subscription_status: tier === 'premium' ? status : 'inactive',
-      current_period_end: tier === 'premium' ? new Date(Date.now() + 30 * 86400000).toISOString() : undefined,
-    };
-    setProfile(updated);
-    localStorage.setItem(LOCAL_STORAGE_PROFILE_KEY, JSON.stringify(updated));
-
+  const updateProfilePlan = async (_tier: 'free' | 'premium', _status: SubscriptionStatus = 'active') => {
+    // A alteração de plano é estritamente gerenciada pelo backend/webhook oficial de pagamentos.
+    // O cliente não pode alterar seu próprio plan_tier. Sincroniza o perfil legítimo:
     if (isSupabaseConfigured && !isDemo && user) {
-      await supabase.from('profiles').update({
-        plan_tier: tier,
-        subscription_status: updated.subscription_status,
-        current_period_end: updated.current_period_end,
-      }).eq('id', user.id);
+      await fetchSupabaseProfile(user.id, user.email);
     }
   };
 

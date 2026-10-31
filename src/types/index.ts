@@ -90,6 +90,7 @@ export interface SavingsGoal {
   category: string;
   icon?: string;
   color?: string;
+  is_completed?: boolean;
   created_at: string;
 }
 

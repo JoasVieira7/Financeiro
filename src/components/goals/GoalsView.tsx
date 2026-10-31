@@ -29,6 +29,7 @@ export const GoalsView: React.FC = () => {
     goals,
     addSavingsGoal,
     updateSavingsGoal,
+    toggleGoalCompleted,
     contributeToGoal,
     deleteSavingsGoal,
     getGoalContributions,
@@ -64,7 +65,10 @@ export const GoalsView: React.FC = () => {
   const currentTier = profile?.plan_tier || 'free';
   const isFreePlan = currentTier === 'free';
   const maxGoals = PLAN_LIMITS[currentTier].maxGoals;
-  const isAtGoalLimit = isFreePlan && goals.length >= maxGoals;
+  const activeGoalsCount = goals.filter(
+    g => (g.current_amount || 0) < g.target_amount && !g.is_completed
+  ).length;
+  const isAtGoalLimit = isFreePlan && activeGoalsCount >= maxGoals;
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -198,7 +202,7 @@ export const GoalsView: React.FC = () => {
             </h3>
             {isFreePlan && (
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                {goals.length}/{maxGoals} no Free
+                {activeGoalsCount}/{maxGoals} ativas no Free
               </span>
             )}
           </div>
@@ -257,6 +261,22 @@ export const GoalsView: React.FC = () => {
 
                     <div className="flex items-center gap-1.5">
                       <button
+                        onClick={async () => {
+                          const res = await toggleGoalCompleted(goal.id);
+                          if (!res.success && res.error) {
+                            alert(res.error);
+                          }
+                        }}
+                        title={goal.is_completed ? 'Reabrir meta como ativa' : 'Marcar meta como concluída'}
+                        className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+                          goal.is_completed
+                            ? 'bg-[#E8FBF0] text-[#00D26A] hover:bg-emerald-100'
+                            : 'hover:bg-slate-100 text-slate-400 hover:text-[#00D26A]'
+                        }`}
+                      >
+                        <Check className="w-4 h-4 stroke-[2.5]" />
+                      </button>
+                      <button
                         onClick={() => setHistoryGoal(goal)}
                         title="Histórico de Contribuições"
                         className="p-1.5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
@@ -277,7 +297,11 @@ export const GoalsView: React.FC = () => {
                   <div>
                     <div className="flex items-center justify-between text-xs mb-1.5">
                       <span className="font-semibold text-slate-400">
-                        {remaining > 0 ? `Falta ${formatCurrency(remaining)}` : 'Meta Concluída! 🎉'}
+                        {goal.is_completed
+                          ? 'Meta Concluída! 🎉 (espaço liberado)'
+                          : remaining > 0
+                          ? `Falta ${formatCurrency(remaining)}`
+                          : 'Meta Concluída! 🎉 (espaço liberado)'}
                       </span>
                       <span className="font-extrabold text-[#00D26A]">{pct}%</span>
                     </div>

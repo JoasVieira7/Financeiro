@@ -38,11 +38,21 @@ export const ReportsView: React.FC = () => {
 
   const handleCreateRecurring = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isPremium) {
+      setIsPlanModalOpen(true);
+      return;
+    }
+
     const val = parseFloat(recAmount.replace(',', '.'));
     const day = parseInt(recDay, 10);
     if (!recDesc.trim() || isNaN(val) || val <= 0 || isNaN(day)) return;
 
-    await addRecurringExpense(recDesc.trim(), val, recCat, recMethod, day);
+    const res = await addRecurringExpense(recDesc.trim(), val, recCat, recMethod, day);
+    if (!res.success && res.error) {
+      alert(res.error);
+      return;
+    }
+
     setRecDesc('');
     setRecAmount('');
     setIsAddingRecurring(false);
@@ -193,10 +203,16 @@ export const ReportsView: React.FC = () => {
           </div>
 
           <button
-            onClick={() => setIsAddingRecurring(true)}
+            onClick={() => {
+              if (!isPremium) {
+                setIsPlanModalOpen(true);
+              } else {
+                setIsAddingRecurring(true);
+              }
+            }}
             className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-all border border-slate-200 min-h-[44px] cursor-pointer"
           >
-            <Plus className="w-3.5 h-3.5" />
+            {!isPremium ? <Lock className="w-3.5 h-3.5 text-amber-500" /> : <Plus className="w-3.5 h-3.5" />}
             <span>Adicionar</span>
           </button>
         </div>
