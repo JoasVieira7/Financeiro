@@ -19,6 +19,14 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   updateProfilePlan: (tier: 'free' | 'premium', status?: SubscriptionStatus) => Promise<void>;
   updateMonthlyBudget: (budget: number, weeklyTarget: number) => Promise<void>;
+  updateProfileData: (updates: {
+    full_name?: string;
+    avatar_url?: string | null;
+    monthly_budget?: number;
+    weekly_saving_target?: number;
+  }) => Promise<{ error?: string }>;
+  notificationsEnabled: boolean;
+  setNotificationsEnabled: (enabled: boolean) => void;
   switchDemoUser: (userId: string) => void;
   toggleDemoMode: (enabled: boolean) => void;
   completeOnboarding: () => void;
@@ -30,6 +38,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const LOCAL_STORAGE_PROFILE_KEY = 'finexpress_profile';
 const LOCAL_STORAGE_USERS_KEY = 'finexpress_custom_users';
 const LOCAL_STORAGE_ONBOARDING_KEY = 'finexpress_onboarding_completed';
+const LOCAL_STORAGE_NOTIFS_KEY = 'finexpress_notifications_enabled';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<{ id: string; email: string } | null>(null);
@@ -39,6 +48,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [hasSeenOnboarding, setHasSeenOnboarding] = useState<boolean>(() => {
     return localStorage.getItem(LOCAL_STORAGE_ONBOARDING_KEY) === 'true';
   });
+  const [notificationsEnabled, setNotificationsEnabledState] = useState<boolean>(() => {
+    const saved = localStorage.getItem(LOCAL_STORAGE_NOTIFS_KEY);
+    return saved !== null ? saved === 'true' : true;
+  });
+
+  const setNotificationsEnabled = (enabled: boolean) => {
+    setNotificationsEnabledState(enabled);
+    localStorage.setItem(LOCAL_STORAGE_NOTIFS_KEY, String(enabled));
+  };
 
   // Load session
   useEffect(() => {
@@ -296,17 +314,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const updateMonthlyBudget = async (budget: number, weeklyTarget: number) => {
-    if (!profile) return;
-    const updated: UserProfile = { ...profile, monthly_budget: budget, weekly_saving_target: weeklyTarget };
+    await updateProfileData({ monthly_budget: budget, weekly_saving_target: weeklyTarget });
+  };
+
+  const updateProfileData = async (updates: {
+    full_name?: string;
+    avatar_url?: string | null;
+    monthly_budget?: number;
+    weekly_saving_target?: number;
+  }): Promise<{ error?: string }> => {
+    if (!profile) return { error: 'Perfil não encontrado' };
+
+    const updated: UserProfile = {
+      ...profile,
+      ...(updates.full_name !== undefined ? { full_name: updates.full_name.trim() } : {}),
+      ...(updates.avatar_url !== undefined ? { avatar_url: updates.avatar_url || undefined } : {}),
+      ...(updates.monthly_budget !== undefined ? { monthly_budget: updates.monthly_budget } : {}),
+      ...(updates.weekly_saving_target !== undefined ? { weekly_saving_target: updates.weekly_saving_target } : {}),
+    };
+
     setProfile(updated);
     localStorage.setItem(LOCAL_STORAGE_PROFILE_KEY, JSON.stringify(updated));
 
     if (isSupabaseConfigured && !isDemo && user) {
-      await supabase.from('profiles').update({
-        monthly_budget: budget,
-        weekly_saving_target: weeklyTarget,
-      }).eq('id', user.id);
+      try {
+        const payload: Record<string, any> = {};
+        if (updates.full_name !== undefined) payload.full_name = updates.full_name.trim();
+        if (updates.avatar_url !== undefined) payload.avatar_url = updates.avatar_url;
+        if (updates.monthly_budget !== undefined) payload.monthly_budget = updates.monthly_budget;
+        if (updates.weekly_saving_target !== undefined) payload.weekly_saving_target = updates.weekly_saving_target;
+
+        const { error } = await supabase.from('profiles').update(payload).eq('id', user.id);
+        if (error) return { error: error.message };
+      } catch (err: any) {
+        return { error: err.message || 'Erro ao sincronizar perfil com o banco' };
+      }
     }
+
+    return {};
   };
 
   const switchDemoUser = (userId: string) => {
@@ -353,6 +398,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         signOut,
         updateProfilePlan,
         updateMonthlyBudget,
+        updateProfileData,
+        notificationsEnabled,
+        setNotificationsEnabled,
         switchDemoUser,
         toggleDemoMode,
         completeOnboarding,

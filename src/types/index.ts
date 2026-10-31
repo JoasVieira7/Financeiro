@@ -30,6 +30,10 @@ export interface Transaction {
   is_recurring?: boolean;
   notes?: string;
   created_at: string;
+  installment_group_id?: string;
+  installment_number?: number;
+  installment_total?: number;
+  installment_purchase_amount?: number;
 }
 
 export interface RecurringExpense {

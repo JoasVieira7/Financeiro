@@ -1,6 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { useFinance } from '../../context/FinanceContext';
+import { useAuth } from '../../context/AuthContext';
 import { formatCurrency, getTransactionDisplay } from '../../lib/formatters';
+import { PlanComparisonModal } from '../profile/PaymentModal';
 import {
   ChevronLeft,
   SlidersHorizontal,
@@ -17,6 +19,8 @@ import {
   DollarSign,
   Plus,
   Inbox,
+  Download,
+  Lock,
 } from 'lucide-react';
 import { Transaction } from '../../types';
 
@@ -26,13 +30,64 @@ interface TransactionsViewProps {
   onNewTransaction?: () => void;
 }
 
+export function exportTransactionsToCSV(transactions: Transaction[]): void {
+  const headers = [
+    'Data',
+    'Hora',
+    'Tipo',
+    'Categoria',
+    'Descricao',
+    'Metodo de Pagamento',
+    'Parcela',
+    'Valor (R$)',
+  ];
+
+  const rows = transactions.map(t => {
+    const d = new Date(t.created_at);
+    const dateStr = d.toLocaleDateString('pt-BR');
+    const timeStr = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const typeStr = t.type === 'income' ? 'Receita' : 'Despesa';
+    const parcelStr =
+      t.installment_number && t.installment_total
+        ? `${t.installment_number}/${t.installment_total}`
+        : '1/1';
+    const amountStr = t.amount.toFixed(2).replace('.', ',');
+
+    return [
+      dateStr,
+      timeStr,
+      typeStr,
+      `"${t.category.replace(/"/g, '""')}"`,
+      `"${(t.description || '').replace(/"/g, '""')}"`,
+      t.payment_method || 'pix',
+      parcelStr,
+      amountStr,
+    ].join(';');
+  });
+
+  const csvContent = '\uFEFF' + [headers.join(';'), ...rows].join('\r\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `financeiro-express-${new Date().toISOString().split('T')[0]}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export const TransactionsView: React.FC<TransactionsViewProps> = ({
   onBack,
   onEditTransaction,
   onNewTransaction,
 }) => {
   const { transactions } = useFinance();
+  const { profile } = useAuth();
   const [activeFilter, setActiveFilter] = useState<'month' | 'week' | 'income' | 'expense'>('month');
+  const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
+
+  const isPremium = profile?.plan_tier === 'premium';
 
   // Filtered transactions with verified date math
   const filteredList = useMemo(() => {
@@ -206,6 +261,30 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
         </button>
       </div>
 
+      {/* Subheader: Contador e Exportação CSV */}
+      <div className="flex items-center justify-between px-1">
+        <span className="text-xs font-semibold text-slate-500">
+          {filteredList.length} {filteredList.length === 1 ? 'lançamento' : 'lançamentos'}
+        </span>
+
+        <button
+          type="button"
+          onClick={() => {
+            if (!isPremium) {
+              setIsPlanModalOpen(true);
+            } else {
+              exportTransactionsToCSV(filteredList);
+            }
+          }}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-bold transition-all shadow-2xs cursor-pointer active:scale-95"
+          title={isPremium ? 'Baixar planilha CSV' : 'Recurso Premium: Exportação CSV'}
+        >
+          <Download className="w-3.5 h-3.5 text-slate-500" />
+          <span>Exportar CSV</span>
+          {!isPremium && <Lock className="w-3 h-3 text-amber-500" />}
+        </button>
+      </div>
+
       {/* Date Groups (Matching Image 3) */}
       {grouped.length === 0 ? (
         <div className="bg-white rounded-3xl p-8 border border-slate-100 text-center shadow-card mt-4">
@@ -250,9 +329,16 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                           <Icon className={`w-5 h-5 ${color}`} />
                         </div>
                         <div className="min-w-0">
-                          <h5 className="text-sm font-bold text-slate-900 truncate">
-                            {display.title}
-                          </h5>
+                          <div className="flex items-center gap-1.5">
+                            <h5 className="text-sm font-bold text-slate-900 truncate">
+                              {display.title}
+                            </h5>
+                            {display.installmentBadge && (
+                              <span className="px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200/80 text-[10px] font-extrabold font-mono shrink-0">
+                                {display.installmentBadge}
+                              </span>
+                            )}
+                          </div>
                           <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1.5 truncate">
                             <span>{display.subtitle}</span>
                             <span>•</span>
@@ -284,6 +370,14 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
           ))}
         </div>
       )}
+
+      {/* Modal de Apresentação dos Planos (Exportação CSV) */}
+      <PlanComparisonModal
+        isOpen={isPlanModalOpen}
+        onClose={() => setIsPlanModalOpen(false)}
+        highlightedFeature="Exportação CSV"
+        featureDescription="Exporte todo o seu histórico financeiro detalhado em formato de planilha CSV compatível com Microsoft Excel e Google Planilhas."
+      />
     </div>
   );
 };

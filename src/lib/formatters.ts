@@ -62,20 +62,80 @@ export function formatPaymentMethod(method?: string): string {
   }
 }
 
+export function formatDateBR(dateInput: Date | string): string {
+  const date = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
+  if (isNaN(date.getTime())) return '';
+  const d = String(date.getDate()).padStart(2, '0');
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const y = date.getFullYear();
+  return `${d}/${m}/${y}`;
+}
+
+/**
+ * Calcula a lista de datas mensais para cada parcela a partir da data inicial.
+ * Preserva o dia do mês informado, ajustando para o último dia válido em meses mais curtos.
+ */
+export function getInstallmentDates(startDate: Date, totalInstallments: number): Date[] {
+  const dates: Date[] = [];
+  const baseDay = startDate.getDate();
+  const baseHours = startDate.getHours();
+  const baseMinutes = startDate.getMinutes();
+  const baseSeconds = startDate.getSeconds();
+
+  for (let i = 0; i < totalInstallments; i++) {
+    const d = new Date(startDate);
+    // Move para o dia 1 do mês de destino para evitar overflow automático
+    d.setMonth(startDate.getMonth() + i, 1);
+    const daysInTargetMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    const targetDay = Math.min(baseDay, daysInTargetMonth);
+    d.setDate(targetDay);
+    d.setHours(baseHours, baseMinutes, baseSeconds, 0);
+    dates.push(d);
+  }
+
+  return dates;
+}
+
+/**
+ * Divide o valor total pelo número de parcelas garantindo que a soma
+ * de todas as parcelas seja exatamente igual ao total (distribuição precisa de centavos).
+ */
+export function calculateInstallmentAmounts(totalAmount: number, totalInstallments: number): number[] {
+  if (totalInstallments <= 0) return [totalAmount];
+  const totalCents = Math.round(totalAmount * 100);
+  const baseCents = Math.floor(totalCents / totalInstallments);
+  const remainderCents = totalCents - (baseCents * totalInstallments);
+
+  const amounts: number[] = [];
+  for (let i = 0; i < totalInstallments; i++) {
+    // Adiciona o resto de centavos na primeira parcela
+    const cents = i === 0 ? baseCents + remainderCents : baseCents;
+    amounts.push(cents / 100);
+  }
+  return amounts;
+}
+
 export interface TransactionDisplayInfo {
   title: string;
   subtitle: string;
   isCustomMerchant: boolean;
+  installmentBadge?: string; // Ex: "1/6"
 }
 
 export function getTransactionDisplay(tx: {
   description?: string;
   category: string;
   payment_method?: string;
+  installment_number?: number;
+  installment_total?: number;
 }): TransactionDisplayInfo {
   const cat = tx.category || 'Outros';
   const desc = (tx.description || '').trim();
   const methodLabel = formatPaymentMethod(tx.payment_method);
+  const installmentBadge =
+    tx.installment_number && tx.installment_total
+      ? `${tx.installment_number}/${tx.installment_total}`
+      : undefined;
 
   // Detecta se a descrição é vazia, igual à categoria ou formato legado tipo "Categoria (METODO)"
   const isGeneric =
@@ -83,18 +143,22 @@ export function getTransactionDisplay(tx: {
     desc.toLowerCase() === cat.toLowerCase() ||
     desc.toLowerCase().startsWith(`${cat.toLowerCase()} (`);
 
+  const installmentSuffix = installmentBadge ? ` · ${installmentBadge}` : '';
+
   if (isGeneric) {
     return {
       title: cat,
-      subtitle: methodLabel,
+      subtitle: `${methodLabel}${installmentSuffix}`,
       isCustomMerchant: false,
+      installmentBadge,
     };
   }
 
   return {
     title: desc,
-    subtitle: `${cat} · ${methodLabel}`,
+    subtitle: `${cat} · ${methodLabel}${installmentSuffix}`,
     isCustomMerchant: true,
+    installmentBadge,
   };
 }
 

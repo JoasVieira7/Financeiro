@@ -84,9 +84,16 @@ export const RecentTransactions: React.FC<RecentTransactionsProps> = ({
                     <Icon className={`w-5 h-5 ${color}`} />
                   </div>
                   <div className="min-w-0">
-                    <h4 className="text-sm font-bold text-slate-900 truncate">
-                      {display.title}
-                    </h4>
+                    <div className="flex items-center gap-1.5">
+                      <h4 className="text-sm font-bold text-slate-900 truncate">
+                        {display.title}
+                      </h4>
+                      {display.installmentBadge && (
+                        <span className="px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200/80 text-[10px] font-extrabold font-mono shrink-0">
+                          {display.installmentBadge}
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1.5 truncate">
                       <span>{display.subtitle}</span>
                       <span>•</span>

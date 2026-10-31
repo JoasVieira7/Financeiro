@@ -59,7 +59,7 @@ export const App: React.FC = () => {
       )}
 
       {/* Main Content Area */}
-      <main className="flex-1 w-full max-w-md mx-auto px-4 pt-3 pb-24">
+      <main className="flex-1 w-full max-w-md sm:max-w-xl md:max-w-2xl lg:max-w-3xl mx-auto px-4 pt-3 pb-28">
         {/* TAB 1: INÍCIO (Matching Image 5) */}
         {activeTab === 'home' && (
           <div className="space-y-4 animate-fade-in">

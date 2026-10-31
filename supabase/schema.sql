@@ -68,6 +68,10 @@ CREATE TABLE IF NOT EXISTS public.transactions (
   )),
   is_recurring boolean DEFAULT false,
   notes text,
+  installment_group_id text,
+  installment_number integer CHECK (installment_number IS NULL OR installment_number > 0),
+  installment_total integer CHECK (installment_total IS NULL OR installment_total >= installment_number),
+  installment_purchase_amount numeric(12,2) CHECK (installment_purchase_amount IS NULL OR installment_purchase_amount > 0),
   created_at timestamptz DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
@@ -225,6 +229,9 @@ CREATE INDEX IF NOT EXISTS idx_transactions_user_date
   ON public.transactions (user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_transactions_user_category
   ON public.transactions (user_id, category);
+CREATE INDEX IF NOT EXISTS idx_transactions_installment_group
+  ON public.transactions (installment_group_id)
+  WHERE installment_group_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_savings_goals_user
   ON public.savings_goals (user_id);
 CREATE INDEX IF NOT EXISTS idx_recurring_user

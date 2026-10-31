@@ -19,6 +19,7 @@ import {
   INITIAL_RECURRING,
   INITIAL_CONTRIBUTIONS,
 } from '../lib/demoStorage';
+import { getInstallmentDates, calculateInstallmentAmounts } from '../lib/formatters';
 
 export const CATEGORY_COLORS: Record<
   TransactionCategory,
@@ -34,6 +35,16 @@ export const CATEGORY_COLORS: Record<
   Salário: { color: '#10B981', bg: 'bg-emerald-500/10', icon: '💰', defaultLimit: 0 },
   Outros: { color: '#00F59B', bg: 'bg-teal-500/10', icon: '🏷️', defaultLimit: 300 },
 };
+
+export interface AddInstallmentExpenseParams {
+  totalAmount: number;
+  installments: number;
+  startDate: Date | string;
+  category: TransactionCategory;
+  paymentMethod: PaymentMethod;
+  description?: string;
+  notes?: string;
+}
 
 interface FinanceContextType {
   transactions: Transaction[];
@@ -51,11 +62,15 @@ interface FinanceContextType {
     isRecurring?: boolean,
     notes?: string
   ) => Promise<{ success: boolean; error?: string }>;
+  addInstallmentExpense: (
+    params: AddInstallmentExpenseParams
+  ) => Promise<{ success: boolean; error?: string }>;
   updateTransaction: (
     id: string,
-    updates: Partial<Omit<Transaction, 'id' | 'user_id' | 'created_at'>>
+    updates: Partial<Omit<Transaction, 'id' | 'user_id' | 'created_at'>>,
+    updateAllInstallments?: boolean
   ) => Promise<{ success: boolean; error?: string }>;
-  deleteTransaction: (id: string) => Promise<void>;
+  deleteTransaction: (id: string, deleteAllInstallments?: boolean) => Promise<void>;
   addSavingsGoal: (
     title: string,
     targetAmount: number,
@@ -283,9 +298,117 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return { success: true };
   };
 
+  // Registrar compra parcelada
+  const addInstallmentExpense = async ({
+    totalAmount,
+    installments,
+    startDate,
+    category,
+    paymentMethod,
+    description,
+    notes,
+  }: AddInstallmentExpenseParams): Promise<{ success: boolean; error?: string }> => {
+    if (!user) return { success: false, error: 'Usuário não autenticado' };
+
+    const numTotal = Number(totalAmount);
+    if (isNaN(numTotal) || numTotal <= 0) {
+      return { success: false, error: 'O valor total deve ser maior que zero (R$ 0,00).' };
+    }
+
+    const numInstallments = parseInt(String(installments), 10);
+    if (isNaN(numInstallments) || numInstallments < 2) {
+      return { success: false, error: 'O parcelamento requer no mínimo 2 parcelas.' };
+    }
+
+    const parsedStartDate = typeof startDate === 'string' ? new Date(startDate) : startDate;
+    if (isNaN(parsedStartDate.getTime())) {
+      return { success: false, error: 'Data da primeira parcela inválida.' };
+    }
+
+    // Previne envios duplicados em menos de 800ms
+    const now = Date.now();
+    if (now - lastSubmissionTime < 800) {
+      return { success: false, error: 'Lançamento em processamento, aguarde um instante.' };
+    }
+    setLastSubmissionTime(now);
+
+    const groupId = `inst-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+    const dates = getInstallmentDates(parsedStartDate, numInstallments);
+    const amounts = calculateInstallmentAmounts(numTotal, numInstallments);
+    const finalDescription = description?.trim() || `${category}`;
+
+    const newTxList: Transaction[] = [];
+    for (let i = 0; i < numInstallments; i++) {
+      newTxList.push({
+        id: `tx-inst-${Date.now()}-${i + 1}-${Math.random().toString(36).substr(2, 4)}`,
+        user_id: user.id,
+        amount: amounts[i],
+        category,
+        payment_method: paymentMethod,
+        description: finalDescription,
+        type: 'expense',
+        is_recurring: false,
+        notes: notes?.trim() || undefined,
+        created_at: dates[i].toISOString(),
+        installment_group_id: groupId,
+        installment_number: i + 1,
+        installment_total: numInstallments,
+        installment_purchase_amount: numTotal,
+      });
+    }
+
+    // Atualiza estado local mantendo ordenação decrescente por data
+    setTransactions(prev => {
+      const merged = [...newTxList, ...prev];
+      return merged.sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+    });
+
+    if (isSupabaseConfigured && !isDemo) {
+      try {
+        const payload = newTxList.map(t => ({
+          user_id: user.id,
+          amount: t.amount,
+          category: t.category,
+          payment_method: t.payment_method,
+          description: t.description,
+          type: t.type,
+          is_recurring: t.is_recurring,
+          notes: t.notes,
+          created_at: t.created_at,
+          installment_group_id: t.installment_group_id,
+          installment_number: t.installment_number,
+          installment_total: t.installment_total,
+          installment_purchase_amount: t.installment_purchase_amount,
+        }));
+
+        const { error } = await supabase.from('transactions').insert(payload);
+        if (error) {
+          setTransactions(prev => prev.filter(t => t.installment_group_id !== groupId));
+          return { success: false, error: error.message };
+        }
+      } catch (err: any) {
+        setTransactions(prev => prev.filter(t => t.installment_group_id !== groupId));
+        return { success: false, error: err.message };
+      }
+    } else {
+      const storedTx = localStorage.getItem(LOCAL_STORAGE_TX_KEY);
+      const allTx: Transaction[] = storedTx ? JSON.parse(storedTx) : [];
+      allTx.unshift(...newTxList);
+      allTx.sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+      localStorage.setItem(LOCAL_STORAGE_TX_KEY, JSON.stringify(allTx));
+    }
+
+    return { success: true };
+  };
+
   const updateTransaction = async (
     id: string,
-    updates: Partial<Omit<Transaction, 'id' | 'user_id' | 'created_at'>>
+    updates: Partial<Omit<Transaction, 'id' | 'user_id' | 'created_at'>>,
+    updateAllInstallments: boolean = false
   ): Promise<{ success: boolean; error?: string }> => {
     if (updates.amount !== undefined) {
       const numAmount = Number(updates.amount);
@@ -295,21 +418,58 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       updates.amount = numAmount;
     }
 
+    const targetTx = transactions.find(t => t.id === id);
+    const hasGroup = Boolean(targetTx?.installment_group_id);
+    const shouldUpdateGroup = updateAllInstallments && hasGroup;
+    const groupId = targetTx?.installment_group_id;
+
+    // Se atualizar todo o grupo, remove amount dos campos propagados para não sobrescrever
+    // parcelas que possam ter centavos diferentes
+    const groupUpdates = { ...updates };
+    if (shouldUpdateGroup) {
+      delete groupUpdates.amount;
+      delete groupUpdates.installment_number;
+    }
+
     setTransactions(prev =>
-      prev.map(t => (t.id === id ? { ...t, ...updates } : t))
+      prev.map(t => {
+        if (shouldUpdateGroup && t.installment_group_id === groupId) {
+          return { ...t, ...groupUpdates };
+        }
+        if (t.id === id) {
+          return { ...t, ...updates };
+        }
+        return t;
+      })
     );
 
     if (isSupabaseConfigured && !isDemo) {
-      const { error } = await supabase
-        .from('transactions')
-        .update(updates)
-        .eq('id', id);
-      if (error) return { success: false, error: error.message };
+      if (shouldUpdateGroup && groupId) {
+        const { error } = await supabase
+          .from('transactions')
+          .update(groupUpdates)
+          .eq('installment_group_id', groupId);
+        if (error) return { success: false, error: error.message };
+      } else {
+        const { error } = await supabase
+          .from('transactions')
+          .update(updates)
+          .eq('id', id);
+        if (error) return { success: false, error: error.message };
+      }
     } else {
       const storedTx = localStorage.getItem(LOCAL_STORAGE_TX_KEY);
       if (storedTx) {
         const allTx: Transaction[] = JSON.parse(storedTx);
-        const updated = allTx.map(t => (t.id === id ? { ...t, ...updates } : t));
+        const updated = allTx.map(t => {
+          if (shouldUpdateGroup && t.installment_group_id === groupId) {
+            return { ...t, ...groupUpdates };
+          }
+          if (t.id === id) {
+            return { ...t, ...updates };
+          }
+          return t;
+        });
         localStorage.setItem(LOCAL_STORAGE_TX_KEY, JSON.stringify(updated));
       }
     }
@@ -317,19 +477,41 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return { success: true };
   };
 
-  const deleteTransaction = async (id: string) => {
-    setTransactions(prev => prev.filter(t => t.id !== id));
+  const deleteTransaction = async (id: string, deleteAllInstallments: boolean = false) => {
+    const targetTx = transactions.find(t => t.id === id);
+    const hasGroup = Boolean(targetTx?.installment_group_id);
+    const shouldDeleteGroup = deleteAllInstallments && hasGroup;
+    const groupId = targetTx?.installment_group_id;
 
-    if (isSupabaseConfigured && !isDemo) {
-      await supabase.from('transactions').delete().eq('id', id);
+    if (shouldDeleteGroup && groupId) {
+      setTransactions(prev => prev.filter(t => t.installment_group_id !== groupId));
+
+      if (isSupabaseConfigured && !isDemo) {
+        await supabase.from('transactions').delete().eq('installment_group_id', groupId);
+      } else {
+        const storedTx = localStorage.getItem(LOCAL_STORAGE_TX_KEY);
+        if (storedTx) {
+          const allTx: Transaction[] = JSON.parse(storedTx);
+          localStorage.setItem(
+            LOCAL_STORAGE_TX_KEY,
+            JSON.stringify(allTx.filter(t => t.installment_group_id !== groupId))
+          );
+        }
+      }
     } else {
-      const storedTx = localStorage.getItem(LOCAL_STORAGE_TX_KEY);
-      if (storedTx) {
-        const allTx: Transaction[] = JSON.parse(storedTx);
-        localStorage.setItem(
-          LOCAL_STORAGE_TX_KEY,
-          JSON.stringify(allTx.filter(t => t.id !== id))
-        );
+      setTransactions(prev => prev.filter(t => t.id !== id));
+
+      if (isSupabaseConfigured && !isDemo) {
+        await supabase.from('transactions').delete().eq('id', id);
+      } else {
+        const storedTx = localStorage.getItem(LOCAL_STORAGE_TX_KEY);
+        if (storedTx) {
+          const allTx: Transaction[] = JSON.parse(storedTx);
+          localStorage.setItem(
+            LOCAL_STORAGE_TX_KEY,
+            JSON.stringify(allTx.filter(t => t.id !== id))
+          );
+        }
       }
     }
   };
@@ -822,6 +1004,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         stats,
         loading,
         addTransaction,
+        addInstallmentExpense,
         updateTransaction,
         deleteTransaction,
         addSavingsGoal,

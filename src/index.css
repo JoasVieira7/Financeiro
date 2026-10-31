@@ -4,10 +4,10 @@
 
 @layer base {
   :root {
-    --sat: env(safe-area-inset-top);
-    --sab: env(safe-area-inset-bottom);
-    --sal: env(safe-area-inset-left);
-    --sar: env(safe-area-inset-right);
+    --sat: env(safe-area-inset-top, 0px);
+    --sab: env(safe-area-inset-bottom, 0px);
+    --sal: env(safe-area-inset-left, 0px);
+    --sar: env(safe-area-inset-right, 0px);
   }
 
   body {
@@ -15,13 +15,26 @@
     color: #0F172A;
     font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
     -webkit-tap-highlight-color: transparent;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  button, a, input, select, textarea {
+    touch-action: manipulation;
+  }
+
+  /* Previne zoom automático forçado no iOS Safari em dispositivos móveis */
+  @media screen and (max-width: 768px) {
+    input, select, textarea {
+      font-size: 16px !important;
+    }
   }
 }
 
 /* Scrollbars */
 ::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+  width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {
@@ -33,10 +46,20 @@
   border-radius: 9999px;
 }
 
+::-webkit-scrollbar-thumb:hover {
+  background: #CBD5E1;
+}
+
+/* Suporte a Safe Areas Multiplataforma (iOS, Android, PWA) */
 .pb-safe {
-  padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
+  padding-bottom: max(1.25rem, env(safe-area-inset-bottom, 0px));
 }
 
 .pt-safe {
-  padding-top: max(1rem, env(safe-area-inset-top));
+  padding-top: max(0.75rem, env(safe-area-inset-top, 0px));
+}
+
+/* Scroll nativo suave com inércia em WebKit/iOS */
+.scroll-touch {
+  -webkit-overflow-scrolling: touch;
 }

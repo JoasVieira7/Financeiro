@@ -3,6 +3,7 @@ import { useFinance } from '../../context/FinanceContext';
 import { useAuth } from '../../context/AuthContext';
 import { formatCurrency } from '../../lib/formatters';
 import { DonutChart } from '../common/DonutChart';
+import { PlanComparisonModal } from '../profile/PaymentModal';
 import {
   Plus,
   ChevronRight,
@@ -37,6 +38,7 @@ export const GoalsView: React.FC = () => {
 
   // Create Goal Modal
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [targetAmount, setTargetAmount] = useState('');
   const [deadline, setDeadline] = useState('');
@@ -428,22 +430,37 @@ export const GoalsView: React.FC = () => {
             </div>
 
             {isAtGoalLimit ? (
-              <div className="space-y-4">
+              <div className="space-y-3.5">
                 <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-center">
                   <Lock className="w-8 h-8 text-amber-600 mx-auto mb-2" />
                   <h4 className="text-sm font-bold text-amber-900">
                     Limite do Plano Gratuito
                   </h4>
-                  <p className="text-xs text-amber-700 mt-1">
-                    Você já possui 2 metas de economia ativas. Assine o Plano Premium (R$ 4,90/mês) para metas ilimitadas.
+                  <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+                    Você já possui 2 metas de economia ativas. Conheça o Plano Premium para gerenciar metas ilimitadas.
                   </p>
                 </div>
-                <button
-                  onClick={() => setIsAddOpen(false)}
-                  className="w-full py-3 rounded-full bg-slate-900 text-white font-bold text-xs"
-                >
-                  Entendi
-                </button>
+
+                <div className="flex flex-col gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAddOpen(false);
+                      setIsPlanModalOpen(true);
+                    }}
+                    className="w-full py-3 rounded-full bg-[#00D26A] hover:bg-[#00C853] text-white font-bold text-xs shadow-button-green transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Conhecer o Premium</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsAddOpen(false)}
+                    className="w-full py-2.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-colors cursor-pointer"
+                  >
+                    Fechar
+                  </button>
+                </div>
               </div>
             ) : (
               <form onSubmit={handleCreate} className="space-y-3.5">
@@ -689,6 +706,14 @@ export const GoalsView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Modal Comparativo de Planos */}
+      <PlanComparisonModal
+        isOpen={isPlanModalOpen}
+        onClose={() => setIsPlanModalOpen(false)}
+        highlightedFeature="Metas de Economia Ilimitadas"
+        featureDescription="No Plano Premium você cria quantos objetivos financeiros desejar, sem o limite de 2 metas do plano gratuito."
+      />
     </div>
   );
 };

@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { supabase, isSupabaseConfigured } from '../../lib/supabase';
-import { PaymentModal } from './PaymentModal';
+import { formatCurrency } from '../../lib/formatters';
 import { TermsOfServiceModal } from '../legal/TermsOfServiceModal';
 import { PrivacyPolicyModal } from '../legal/PrivacyPolicyModal';
 import { SupportModal } from '../legal/SupportModal';
+import { PlanComparisonModal } from './PaymentModal';
 import {
   Settings,
   Check,
@@ -12,20 +12,26 @@ import {
   User,
   Shield,
   Bell,
+  BellOff,
   ChevronRight,
   FileText,
   HelpCircle,
   X,
   AlertTriangle,
   Sparkles,
-  Save,
+  Camera,
+  Trash2,
+  DollarSign,
+  Target,
+  Crown,
+  Edit3,
 } from 'lucide-react';
 
 interface ProfileViewProps {
   onOpenAuth: () => void;
 }
 
-export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenAuth }) => {
+export const ProfileView: React.FC<ProfileViewProps> = () => {
   const {
     user,
     profile,
@@ -33,79 +39,155 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenAuth }) => {
     updatePassword,
     deleteAccount,
     replayOnboarding,
+    updateProfileData,
+    notificationsEnabled,
+    setNotificationsEnabled,
   } = useAuth();
 
-  // Modals
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Modais de navegação e preferências
   const [isPreferencesOpen, setIsPreferencesOpen] = useState(false);
-  const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [isTermsOpen, setIsTermsOpen] = useState(false);
   const [isPrivacyOpen, setIsPrivacyOpen] = useState(false);
   const [isSupportOpen, setIsSupportOpen] = useState(false);
+  const [isPremiumInfoOpen, setIsPremiumInfoOpen] = useState(false);
 
-  // Dados Pessoais modal
-  const [isDadosPessoaisOpen, setIsDadosPessoaisOpen] = useState(false);
+  // Modal Editar Perfil & Metas Financeiras
+  const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const [editedName, setEditedName] = useState('');
-  const [dadosFeedback, setDadosFeedback] = useState<string | null>(null);
-  const [isSavingName, setIsSavingName] = useState(false);
+  const [editedBudget, setEditedBudget] = useState('');
+  const [editedWeeklyTarget, setEditedWeeklyTarget] = useState('');
+  const [profileFeedback, setProfileFeedback] = useState<string | null>(null);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
 
-  // Password & Delete modal states
+  // Modal Alterar Senha
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [passwordFeedback, setPasswordFeedback] = useState<string | null>(null);
 
+  // Modal Exclusão de Conta
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [deleteConfirmationText, setDeleteConfirmationText] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
 
   const name = profile?.full_name || 'Alex Rivera';
-  const email = profile?.email || 'alex.rivera@email.com';
-  const initials = name
-    .split(' ')
-    .slice(0, 2)
-    .map(w => w[0])
-    .join('')
-    .toUpperCase() || 'AR';
+  const email = profile?.email || user?.email || 'alex.rivera@email.com';
+  const initials =
+    name
+      .split(' ')
+      .slice(0, 2)
+      .map(w => w[0])
+      .join('')
+      .toUpperCase() || 'AR';
 
-  const handleOpenDadosPessoais = () => {
-    setEditedName(profile?.full_name || '');
-    setDadosFeedback(null);
-    setIsDadosPessoaisOpen(true);
-  };
+  const isPremium = profile?.plan_tier === 'premium';
+  const monthlyBudget = profile?.monthly_budget || 3500;
+  const weeklyTarget = profile?.weekly_saving_target || 250;
 
-  const handleSaveName = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmed = editedName.trim();
-    if (!trimmed) {
-      setDadosFeedback('O nome não pode estar vazio.');
+  // Foto de Perfil: Seleção e Redimensionamento Local
+  const handleAvatarFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert('A imagem deve ter no máximo 5MB.');
       return;
     }
-    setIsSavingName(true);
-    setDadosFeedback(null);
-    try {
-      if (isSupabaseConfigured && user) {
-        const { error } = await supabase
-          .from('profiles')
-          .update({ full_name: trimmed })
-          .eq('id', user.id);
-        if (error) throw new Error(error.message);
-      }
-      // Atualiza localmente independente de demo ou real
-      if (profile) {
-        // Força re-render via referência nova (AuthContext lê de profile local)
-        Object.assign(profile, { full_name: trimmed });
-      }
-      setDadosFeedback('Nome atualizado com sucesso!');
+
+    const reader = new FileReader();
+    reader.onload = event => {
+      const img = new Image();
+      img.onload = () => {
+        // Redimensiona para thumbnail de avatar (máximo 200x200) com alta fidelidade
+        const canvas = document.createElement('canvas');
+        const maxSize = 200;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > maxSize) {
+            height = Math.round((height * maxSize) / width);
+            width = maxSize;
+          }
+        } else {
+          if (height > maxSize) {
+            width = Math.round((width * maxSize) / height);
+            height = maxSize;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.82);
+          updateProfileData({ avatar_url: compressedDataUrl });
+        }
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleRemoveAvatar = async () => {
+    await updateProfileData({ avatar_url: null });
+  };
+
+  // Abrir Modal de Edição de Perfil e Metas
+  const handleOpenEditProfile = () => {
+    setEditedName(profile?.full_name || '');
+    setEditedBudget(String(monthlyBudget));
+    setEditedWeeklyTarget(String(weeklyTarget));
+    setProfileFeedback(null);
+    setIsEditProfileOpen(true);
+  };
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmedName = editedName.trim();
+    if (!trimmedName) {
+      setProfileFeedback('O nome não pode estar em branco.');
+      return;
+    }
+
+    const budgetNum = parseFloat(editedBudget.replace(',', '.'));
+    if (isNaN(budgetNum) || budgetNum < 0) {
+      setProfileFeedback('Informe um orçamento mensal válido.');
+      return;
+    }
+
+    const weeklyNum = parseFloat(editedWeeklyTarget.replace(',', '.'));
+    if (isNaN(weeklyNum) || weeklyNum < 0) {
+      setProfileFeedback('Informe uma meta semanal válida.');
+      return;
+    }
+
+    setIsSavingProfile(true);
+    setProfileFeedback(null);
+
+    const res = await updateProfileData({
+      full_name: trimmedName,
+      monthly_budget: budgetNum,
+      weekly_saving_target: weeklyNum,
+    });
+
+    setIsSavingProfile(false);
+
+    if (res.error) {
+      setProfileFeedback(res.error);
+    } else {
+      setProfileFeedback('Dados atualizados com sucesso!');
       setTimeout(() => {
-        setIsDadosPessoaisOpen(false);
-        setDadosFeedback(null);
-      }, 1200);
-    } catch (err: any) {
-      setDadosFeedback(err.message || 'Erro ao salvar. Tente novamente.');
-    } finally {
-      setIsSavingName(false);
+        setIsEditProfileOpen(false);
+        setProfileFeedback(null);
+      }, 1000);
     }
   };
 
+  // Alterar Senha
   const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newPassword.length < 6) {
@@ -125,6 +207,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenAuth }) => {
     }
   };
 
+  // Exclusão de Conta
   const handleDeleteAccount = async () => {
     if (deleteConfirmationText !== 'EXCLUIR') return;
     setIsDeleting(true);
@@ -139,7 +222,17 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenAuth }) => {
   };
 
   return (
-    <div className="space-y-6 animate-fade-in pb-16 pt-1">
+    <div className="space-y-5 animate-fade-in pb-20 pt-1 max-w-md sm:max-w-xl md:max-w-2xl mx-auto">
+      {/* Input de arquivo invisível para seleção de foto */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        accept="image/*"
+        onChange={handleAvatarFileSelect}
+        className="hidden"
+        aria-hidden="true"
+      />
+
       {/* Top Header: "Meu Perfil" on left, Gear on right */}
       <div className="flex items-center justify-between px-1">
         <h2 className="text-[22px] font-extrabold text-slate-900 tracking-tight">
@@ -147,7 +240,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenAuth }) => {
         </h2>
         <button
           onClick={() => setIsPreferencesOpen(true)}
-          className="w-9 h-9 rounded-full flex items-center justify-center text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
+          className="w-10 h-10 rounded-full flex items-center justify-center text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
           title="Preferências"
           aria-label="Abrir preferências"
         >
@@ -155,127 +248,309 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenAuth }) => {
         </button>
       </div>
 
-      {/* Main Profile Card (Matching Reference Image) */}
-      <div className="bg-white rounded-[36px] p-7 border border-slate-100 shadow-[0_12px_36px_rgba(0,0,0,0.06)] flex flex-col items-center relative">
-        {/* Avatar with Verified Green Check to the right */}
-        <div className="flex items-center justify-center relative w-full mb-3">
-          <div className="w-[98px] h-[98px] rounded-full bg-[#00D26A] flex items-center justify-center text-white font-extrabold text-[28px] shadow-sm">
-            {initials}
+      {/* ========================================================================= */}
+      {/* 1. FOTO + NOME + IDENTIFICAÇÃO DA CONTA                                   */}
+      {/* ========================================================================= */}
+      <div className="bg-white rounded-[32px] p-6 border border-slate-100 shadow-[0_8px_30px_rgba(0,0,0,0.04)] flex flex-col items-center relative text-center">
+        {/* Avatar com suporte à foto personalizada e fallback de iniciais */}
+        <div className="relative mb-3.5">
+          <div className="w-24 h-24 rounded-full overflow-hidden bg-[#00D26A] flex items-center justify-center text-white font-extrabold text-[28px] shadow-sm border-2 border-white">
+            {profile?.avatar_url ? (
+              <img
+                src={profile.avatar_url}
+                alt={name}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <span>{initials}</span>
+            )}
           </div>
-          {/* Verified Check Badge to the right */}
-          <div className="absolute right-[22%] top-6 w-6 h-6 rounded-full bg-[#00D26A] flex items-center justify-center shadow-sm">
-            <Check className="w-3.5 h-3.5 text-white stroke-[3.5]" />
-          </div>
+
+          {/* Botão de câmera para alterar foto */}
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            title="Alterar foto de perfil"
+            aria-label="Alterar foto"
+            className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center shadow-md hover:bg-slate-800 transition-transform active:scale-95 cursor-pointer border-2 border-white"
+          >
+            <Camera className="w-4 h-4" />
+          </button>
         </div>
 
-        {/* User Name */}
-        <h3 className="text-[22px] font-extrabold text-slate-900 tracking-tight text-center">
-          {name}
-        </h3>
+        {/* Botão sutil para remover foto se existir */}
+        {profile?.avatar_url && (
+          <button
+            type="button"
+            onClick={handleRemoveAvatar}
+            className="text-[11px] font-semibold text-slate-400 hover:text-rose-600 transition-colors mb-2 cursor-pointer"
+          >
+            Remover foto e usar iniciais
+          </button>
+        )}
 
-        {/* User Email */}
-        <p className="text-xs font-medium text-slate-400 mt-1 text-center">
+        {/* Nome do Usuário */}
+        <div className="flex items-center gap-1.5 justify-center">
+          <h3 className="text-[20px] font-extrabold text-slate-900 tracking-tight">
+            {name}
+          </h3>
+          <button
+            onClick={handleOpenEditProfile}
+            className="p-1 text-slate-400 hover:text-[#00D26A] transition-colors rounded-full cursor-pointer"
+            title="Editar dados"
+            aria-label="Editar dados pessoais"
+          >
+            <Edit3 className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* E-mail da Conta */}
+        <p className="text-xs font-medium text-slate-400 mt-0.5">
           {email}
         </p>
 
-        {/* Pill Badge: Plano Premium Ativo */}
-        <div className="mt-4 px-6 py-2 rounded-full bg-[#E8FBF0] border border-[#A7F3D0] text-[#4ADE80] text-xs font-bold flex items-center gap-1.5 shadow-xs">
-          <Award className="w-4 h-4 stroke-[2.5]" />
-          <span className="tracking-wide">Plano Premium Ativo</span>
+        {/* Badge do Plano Atual */}
+        <div className="mt-3.5">
+          {isPremium ? (
+            <div className="px-4 py-1.5 rounded-full bg-[#E8FBF0] border border-[#A7F3D0] text-[#00D26A] text-xs font-bold flex items-center gap-1.5 shadow-2xs">
+              <Award className="w-4 h-4 stroke-[2.5]" />
+              <span>Plano Premium Ativo</span>
+            </div>
+          ) : (
+            <div className="px-4 py-1.5 rounded-full bg-slate-100 border border-slate-200 text-slate-600 text-xs font-bold flex items-center gap-1.5 shadow-2xs">
+              <User className="w-3.5 h-3.5" />
+              <span>Plano Gratuito</span>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Section: Assinatura e Pagamento */}
-      <div className="space-y-3">
-        <h4 className="text-base font-extrabold text-slate-900 text-center tracking-tight">
-          Assinatura e Pagamento
+      {/* ========================================================================= */}
+      {/* 2. SEU PLANO                                                             */}
+      {/* ========================================================================= */}
+      <div className="space-y-2">
+        <h4 className="text-xs font-extrabold text-slate-400 uppercase tracking-wider px-1">
+          Seu Plano
         </h4>
 
-        <div className="bg-white rounded-[28px] p-5 border border-slate-100 shadow-[0_8px_24px_rgba(0,0,0,0.04)] space-y-4">
-          <div className="flex items-start justify-between">
+        <div className="bg-white rounded-[26px] p-5 border border-slate-100 shadow-[0_6px_20px_rgba(0,0,0,0.03)] space-y-3.5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div
+                className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${
+                  isPremium
+                    ? 'bg-[#E8FBF0] text-[#00D26A]'
+                    : 'bg-slate-100 text-slate-600'
+                }`}
+              >
+                {isPremium ? (
+                  <Crown className="w-5 h-5 stroke-[2.2]" />
+                ) : (
+                  <Shield className="w-5 h-5 stroke-[2.2]" />
+                )}
+              </div>
+              <div>
+                <h5 className="text-sm font-extrabold text-slate-900 leading-tight">
+                  {isPremium ? 'Financeiro Express Premium' : 'Plano Gratuito'}
+                </h5>
+                <p className="text-xs text-slate-400 font-medium mt-0.5">
+                  {isPremium
+                    ? 'Assinatura ativa e completa'
+                    : 'Acesso essencial com recursos limitados'}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Benefícios Resumidos */}
+          <div className="pt-2 border-t border-slate-100 space-y-1.5 text-xs text-slate-600 font-medium">
+            <div className="flex items-center gap-2">
+              <Check className="w-3.5 h-3.5 text-[#00D26A] stroke-[3] shrink-0" />
+              <span>Registro de despesas à vista e parceladas</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Check className="w-3.5 h-3.5 text-[#00D26A] stroke-[3] shrink-0" />
+              <span>
+                {isPremium
+                  ? 'Metas de economia ilimitadas'
+                  : 'Até 2 metas de economia ativas'}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Check className="w-3.5 h-3.5 text-[#00D26A] stroke-[3] shrink-0" />
+              <span>
+                {isPremium
+                  ? 'Análise detalhada por categoria e relatórios completos'
+                  : 'Visualização padrão de gastos mensais'}
+              </span>
+            </div>
+          </div>
+
+          {!isPremium && (
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => setIsPremiumInfoOpen(true)}
+                className="w-full py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-[#00D26A]" />
+                <span>Conheça o Premium</span>
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* 3. DADOS FINANCEIROS                                                      */}
+      {/* ========================================================================= */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between px-1">
+          <h4 className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">
+            Dados Financeiros
+          </h4>
+          <button
+            type="button"
+            onClick={handleOpenEditProfile}
+            className="text-xs font-bold text-[#00D26A] hover:underline cursor-pointer"
+          >
+            Ajustar Valores
+          </button>
+        </div>
+
+        <div className="bg-white rounded-[26px] p-4 border border-slate-100 shadow-[0_6px_20px_rgba(0,0,0,0.03)] grid grid-cols-2 gap-3">
+          <div className="p-3 rounded-2xl bg-slate-50 border border-slate-100/80 space-y-1">
+            <span className="text-[11px] font-bold text-slate-500 flex items-center gap-1">
+              <DollarSign className="w-3.5 h-3.5 text-[#00D26A]" />
+              Orçamento Mensal
+            </span>
+            <div className="text-sm font-extrabold text-slate-900 font-mono">
+              {formatCurrency(monthlyBudget)}
+            </div>
+          </div>
+
+          <div className="p-3 rounded-2xl bg-slate-50 border border-slate-100/80 space-y-1">
+            <span className="text-[11px] font-bold text-slate-500 flex items-center gap-1">
+              <Target className="w-3.5 h-3.5 text-[#00D26A]" />
+              Meta Semanal
+            </span>
+            <div className="text-sm font-extrabold text-slate-900 font-mono">
+              {formatCurrency(weeklyTarget)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* 4. PREFERÊNCIAS                                                          */}
+      {/* ========================================================================= */}
+      <div className="space-y-2">
+        <h4 className="text-xs font-extrabold text-slate-400 uppercase tracking-wider px-1">
+          Preferências
+        </h4>
+
+        <div className="space-y-2">
+          {/* Notificações com Toggle Real */}
+          <div className="bg-white rounded-[22px] px-4 py-3.5 border border-slate-100 shadow-[0_6px_20px_rgba(0,0,0,0.03)] flex items-center justify-between">
+            <div className="flex items-center gap-3.5 min-w-0 pr-2">
+              <div
+                className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
+                  notificationsEnabled
+                    ? 'bg-[#E8FBF0] text-[#00D26A]'
+                    : 'bg-slate-100 text-slate-400'
+                }`}
+              >
+                {notificationsEnabled ? (
+                  <Bell className="w-5 h-5 stroke-[2.2]" />
+                ) : (
+                  <BellOff className="w-5 h-5 stroke-[2.2]" />
+                )}
+              </div>
+              <div className="min-w-0">
+                <span className="text-sm font-bold text-slate-900 block truncate">
+                  Notificações
+                </span>
+                <span className="text-xs text-slate-400 block truncate leading-tight">
+                  Receba lembretes e avisos importantes
+                </span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setNotificationsEnabled(!notificationsEnabled)}
+              className={`px-3 py-1.5 rounded-full text-xs font-extrabold transition-all cursor-pointer whitespace-nowrap shadow-2xs ${
+                notificationsEnabled
+                  ? 'bg-[#E8FBF0] text-[#00D26A] border border-[#A7F3D0]'
+                  : 'bg-slate-100 text-slate-600 border border-slate-200'
+              }`}
+            >
+              {notificationsEnabled ? 'Ativadas' : 'Desativadas'}
+            </button>
+          </div>
+
+          {/* Rever Tutorial */}
+          <div
+            onClick={handleReplayTutorial}
+            className="bg-white rounded-[22px] px-4 py-3.5 border border-slate-100 shadow-[0_6px_20px_rgba(0,0,0,0.03)] flex items-center justify-between cursor-pointer hover:border-slate-200 transition-colors active:scale-[0.99]"
+          >
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="w-10 h-10 rounded-full bg-[#E8FBF0] flex items-center justify-center text-[#00D26A] shrink-0">
+                <Sparkles className="w-5 h-5 stroke-[2.2]" />
+              </div>
+              <div className="min-w-0">
+                <span className="text-sm font-bold text-slate-900 block truncate">
+                  Rever tutorial
+                </span>
+                <span className="text-xs text-slate-400 block truncate leading-tight">
+                  Veja novamente como usar o Financeiro Express
+                </span>
+              </div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-slate-400 shrink-0 ml-2" />
+          </div>
+        </div>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* 5. SEGURANÇA                                                             */}
+      {/* ========================================================================= */}
+      <div className="space-y-2">
+        <h4 className="text-xs font-extrabold text-slate-400 uppercase tracking-wider px-1">
+          Segurança
+        </h4>
+
+        <div
+          onClick={() => setIsPasswordModalOpen(true)}
+          className="bg-white rounded-[22px] px-4 py-3.5 border border-slate-100 shadow-[0_6px_20px_rgba(0,0,0,0.03)] flex items-center justify-between cursor-pointer hover:border-slate-200 transition-colors active:scale-[0.99]"
+        >
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-700 shrink-0">
+              <Shield className="w-5 h-5 stroke-[2.2]" />
+            </div>
             <div>
-              <h5 className="text-sm font-extrabold text-slate-900">
-                Mensal Antigravity
-              </h5>
-              <p className="text-xs text-slate-400 mt-1 font-medium">
-                Próxima cobrança: 12 Out
-              </p>
-            </div>
-            <div className="text-base font-extrabold text-[#00D26A] font-mono">
-              R$ 4,90/mês
+              <span className="text-sm font-bold text-slate-900 block">
+                Alterar Senha
+              </span>
+              <span className="text-xs text-slate-400 block leading-tight">
+                Mantenha sua conta sempre protegida
+              </span>
             </div>
           </div>
-
-          <div className="flex items-center justify-between pt-1">
-            <button
-              onClick={() => setIsPaymentOpen(true)}
-              className="px-4 py-2 rounded-xl bg-white border border-slate-200 text-xs font-bold text-slate-800 hover:bg-slate-50 transition-colors shadow-xs"
-            >
-              Gerenciar Plano
-            </button>
-            <button
-              onClick={() => setIsPaymentOpen(true)}
-              className="text-xs font-bold text-[#00D26A] hover:underline"
-            >
-              Ver Recibos
-            </button>
-          </div>
+          <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
         </div>
       </div>
 
-      {/* Section: Configurações da Conta */}
-      <div className="space-y-3">
-        <h4 className="text-base font-extrabold text-slate-900 text-center tracking-tight">
-          Configurações da Conta
+      {/* ========================================================================= */}
+      {/* 6. SUPORTE & TERMOS                                                      */}
+      {/* ========================================================================= */}
+      <div className="space-y-2">
+        <h4 className="text-xs font-extrabold text-slate-400 uppercase tracking-wider px-1">
+          Ajuda & Legal
         </h4>
 
-        <div className="space-y-2.5">
-          {/* Dados Pessoais */}
-          <div
-            onClick={handleOpenDadosPessoais}
-            className="bg-white rounded-[22px] px-4 py-3.5 border border-slate-100 shadow-[0_6px_20px_rgba(0,0,0,0.03)] flex items-center justify-between cursor-pointer hover:border-slate-200 transition-colors"
-          >
-            <div className="flex items-center gap-3.5">
-              <div className="w-10 h-10 rounded-full bg-[#E8FBF0] flex items-center justify-center text-[#00D26A] shrink-0">
-                <User className="w-5 h-5 stroke-[2.2]" />
-              </div>
-              <span className="text-sm font-bold text-[#00D26A]">
-                Dados Pessoais
-              </span>
-            </div>
-            <ChevronRight className="w-4 h-4 text-slate-400" />
-          </div>
-
-          {/* Segurança e Senha */}
-          <div
-            onClick={() => setIsPasswordModalOpen(true)}
-            className="bg-white rounded-[22px] px-4 py-3.5 border border-slate-100 shadow-[0_6px_20px_rgba(0,0,0,0.03)] flex items-center justify-between cursor-pointer hover:border-slate-200 transition-colors"
-          >
-            <div className="flex items-center gap-3.5">
-              <div className="w-10 h-10 rounded-full bg-[#E8FBF0] flex items-center justify-center text-[#00D26A] shrink-0">
-                <Shield className="w-5 h-5 stroke-[2.2]" />
-              </div>
-              <span className="text-sm font-bold text-[#00D26A]">
-                Segurança e Senha
-              </span>
-            </div>
-            <ChevronRight className="w-4 h-4 text-slate-400" />
-          </div>
-
-          {/* Notificações — em breve, sem função */}
-          <div className="bg-white rounded-[22px] px-4 py-3.5 border border-slate-100 shadow-[0_6px_20px_rgba(0,0,0,0.03)] flex items-center justify-between opacity-60">
-            <div className="flex items-center gap-3.5">
-              <div className="w-10 h-10 rounded-full bg-[#E8FBF0] flex items-center justify-center text-[#00D26A] shrink-0">
-                <Bell className="w-5 h-5 stroke-[2.2]" />
-              </div>
-              <span className="text-sm font-bold text-[#00D26A]">
-                Notificações
-              </span>
-            </div>
-            <span className="text-xs font-semibold text-slate-400">Em breve</span>
-          </div>
-
-          {/* Central de Ajuda & FAQ */}
+        <div className="space-y-2">
+          {/* Central de Ajuda & Suporte */}
           <div
             onClick={() => setIsSupportOpen(true)}
             className="bg-white rounded-[22px] px-4 py-3.5 border border-slate-100 shadow-[0_6px_20px_rgba(0,0,0,0.03)] flex items-center justify-between cursor-pointer hover:border-slate-200 transition-colors"
@@ -325,24 +600,30 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenAuth }) => {
         </div>
       </div>
 
-      {/* Danger Zone: Sair e Excluir */}
-      <div className="pt-1 space-y-2.5">
+      {/* ========================================================================= */}
+      {/* 7 & 8. EXCLUSÃO DA CONTA E LOGOUT                                         */}
+      {/* ========================================================================= */}
+      <div className="pt-2 space-y-2.5">
         <button
+          type="button"
           onClick={signOut}
-          className="w-full py-3.5 px-4 rounded-2xl bg-white border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors shadow-xs"
+          className="w-full py-3.5 px-4 rounded-2xl bg-white border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors shadow-2xs cursor-pointer active:scale-[0.99]"
         >
           Desconectar da Conta
         </button>
 
         <button
+          type="button"
           onClick={() => setIsDeleteModalOpen(true)}
-          className="w-full py-3.5 px-4 rounded-2xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-600 hover:bg-rose-100 transition-colors"
+          className="w-full py-3.5 px-4 rounded-2xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-600 hover:bg-rose-100 transition-colors cursor-pointer active:scale-[0.99]"
         >
           Excluir Conta Permanentemente
         </button>
       </div>
 
-      {/* Modal Preferências */}
+      {/* ========================================================================= */}
+      {/* MODAL: PREFERÊNCIAS (Acionado pela Engrenagem no topo)                    */}
+      {/* ========================================================================= */}
       {isPreferencesOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in"
@@ -352,7 +633,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenAuth }) => {
             className="w-full max-w-[380px] bg-white rounded-[32px] p-6 shadow-[0_16px_40px_rgba(0,0,0,0.08)] border border-slate-100 animate-scale-in"
             onClick={e => e.stopPropagation()}
           >
-            {/* Cabeçalho */}
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
               <h3 className="text-[18px] font-extrabold text-slate-900 tracking-tight">
                 Preferências
@@ -367,21 +647,44 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenAuth }) => {
               </button>
             </div>
 
-            {/* Opções Reais */}
             <div className="space-y-3">
+              {/* Notificações */}
+              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between">
+                <div className="min-w-0 pr-2">
+                  <span className="text-xs font-bold text-slate-900 block truncate">
+                    Notificações
+                  </span>
+                  <span className="text-[11px] text-slate-500 block leading-tight">
+                    Lembretes e avisos do app
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setNotificationsEnabled(!notificationsEnabled)}
+                  className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    notificationsEnabled
+                      ? 'bg-[#E8FBF0] text-[#00D26A] border border-[#A7F3D0]'
+                      : 'bg-white text-slate-600 border border-slate-200'
+                  }`}
+                >
+                  {notificationsEnabled ? 'Ativadas' : 'Desativadas'}
+                </button>
+              </div>
+
+              {/* Rever tutorial */}
               <div
                 onClick={handleReplayTutorial}
                 className="w-full p-3.5 rounded-2xl bg-white hover:bg-slate-50 border border-slate-100 hover:border-slate-200 shadow-2xs flex items-center justify-between transition-all cursor-pointer active:scale-98"
               >
-                <div className="flex items-center gap-3.5 min-w-0">
-                  <div className="w-10 h-10 rounded-xl bg-[#E8FBF0] text-[#00D26A] flex items-center justify-center shrink-0">
-                    <Sparkles className="w-5 h-5 stroke-[2.2]" />
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-9 h-9 rounded-xl bg-[#E8FBF0] text-[#00D26A] flex items-center justify-center shrink-0">
+                    <Sparkles className="w-4 h-4 stroke-[2.2]" />
                   </div>
                   <div className="min-w-0 text-left">
-                    <h4 className="text-sm font-bold text-slate-900 truncate">
+                    <h5 className="text-xs font-bold text-slate-900 truncate">
                       Rever tutorial
-                    </h4>
-                    <p className="text-xs text-slate-500 mt-0.5 leading-snug">
+                    </h5>
+                    <p className="text-[11px] text-slate-500 leading-snug">
                       Veja novamente como usar o Financeiro Express.
                     </p>
                   </div>
@@ -390,7 +693,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenAuth }) => {
               </div>
             </div>
 
-            {/* Informações da Versão */}
             <div className="pt-4 mt-4 border-t border-slate-100 text-center">
               <span className="text-[11px] font-semibold text-slate-400 block">
                 Financeiro Express • Versão 2.1
@@ -400,44 +702,46 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenAuth }) => {
         </div>
       )}
 
-      {/* Submodals */}
-      <PaymentModal isOpen={isPaymentOpen} onClose={() => setIsPaymentOpen(false)} />
-      <TermsOfServiceModal isOpen={isTermsOpen} onClose={() => setIsTermsOpen(false)} />
-      <PrivacyPolicyModal isOpen={isPrivacyOpen} onClose={() => setIsPrivacyOpen(false)} />
-      <SupportModal isOpen={isSupportOpen} onClose={() => setIsSupportOpen(false)} />
-
-      {/* Modal Dados Pessoais */}
-      {isDadosPessoaisOpen && (
+      {/* ========================================================================= */}
+      {/* MODAL: EDITAR PERFIL E METAS FINANCEIRAS                                   */}
+      {/* ========================================================================= */}
+      {isEditProfileOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in"
-          onClick={() => setIsDadosPessoaisOpen(false)}
+          onClick={() => setIsEditProfileOpen(false)}
         >
           <div
             className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-2xl animate-scale-in"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
-              <h3 className="font-extrabold text-slate-900 text-base">Dados Pessoais</h3>
+              <h3 className="font-extrabold text-slate-900 text-base">
+                Editar Dados do Perfil
+              </h3>
               <button
-                onClick={() => setIsDadosPessoaisOpen(false)}
+                onClick={() => setIsEditProfileOpen(false)}
                 className="w-7 h-7 rounded-full bg-slate-100 text-slate-500 hover:text-slate-900 flex items-center justify-center"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveName} className="space-y-4">
-              {/* Email (somente leitura) */}
+            <form onSubmit={handleSaveProfile} className="space-y-3.5">
+              {/* E-mail (Somente leitura) */}
               <div>
-                <label className="text-xs text-slate-500 font-semibold block mb-1">E-mail</label>
-                <div className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-100 bg-slate-50 text-slate-400 font-medium select-none">
-                  {profile?.email || user?.email || '—'}
+                <label className="text-xs text-slate-500 font-semibold block mb-1">
+                  E-mail da Conta (não alterável)
+                </label>
+                <div className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-100 bg-slate-50 text-slate-400 font-medium select-none truncate">
+                  {email}
                 </div>
               </div>
 
-              {/* Nome */}
+              {/* Nome completo */}
               <div>
-                <label className="text-xs text-slate-600 font-semibold block mb-1">Nome completo</label>
+                <label className="text-xs text-slate-700 font-bold block mb-1">
+                  Nome Completo
+                </label>
                 <input
                   type="text"
                   required
@@ -448,28 +752,75 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenAuth }) => {
                 />
               </div>
 
-              {dadosFeedback && (
-                <p className={`text-xs font-semibold ${dadosFeedback.includes('sucesso') ? 'text-[#00D26A]' : 'text-rose-500'}`}>
-                  {dadosFeedback}
+              {/* Orçamento Mensal */}
+              <div>
+                <label className="text-xs text-slate-700 font-bold block mb-1">
+                  Orçamento Mensal (R$)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  placeholder="3500.00"
+                  value={editedBudget}
+                  onChange={e => setEditedBudget(e.target.value)}
+                  className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 text-slate-900 focus:outline-none focus:border-[#00D26A] font-mono transition-colors"
+                />
+              </div>
+
+              {/* Meta de Economia Semanal */}
+              <div>
+                <label className="text-xs text-slate-700 font-bold block mb-1">
+                  Meta de Economia Semanal (R$)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  placeholder="250.00"
+                  value={editedWeeklyTarget}
+                  onChange={e => setEditedWeeklyTarget(e.target.value)}
+                  className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 text-slate-900 focus:outline-none focus:border-[#00D26A] font-mono transition-colors"
+                />
+              </div>
+
+              {profileFeedback && (
+                <p
+                  className={`text-xs font-semibold ${
+                    profileFeedback.includes('sucesso')
+                      ? 'text-[#00D26A]'
+                      : 'text-rose-500'
+                  }`}
+                >
+                  {profileFeedback}
                 </p>
               )}
 
               <button
                 type="submit"
-                disabled={isSavingName}
-                className="w-full py-3 rounded-full bg-[#00D26A] text-white font-bold text-xs shadow-button-green disabled:opacity-60 flex items-center justify-center gap-2"
+                disabled={isSavingProfile}
+                className="w-full py-3 rounded-full bg-[#00D26A] text-white font-bold text-xs shadow-button-green disabled:opacity-60 flex items-center justify-center gap-2 cursor-pointer mt-2"
               >
-                <Save className="w-3.5 h-3.5" />
-                {isSavingName ? 'Salvando...' : 'Salvar'}
+                {isSavingProfile ? 'Salvando...' : 'Salvar Alterações'}
               </button>
             </form>
           </div>
         </div>
       )}
 
-      {/* Modal Alterar Senha */}
+      {/* ========================================================================= */}
+      {/* MODAL: COMPARAÇÃO DE PLANOS (PlanComparisonModal)                          */}
+      {/* ========================================================================= */}
+      <PlanComparisonModal
+        isOpen={isPremiumInfoOpen}
+        onClose={() => setIsPremiumInfoOpen(false)}
+      />
+
+      {/* ========================================================================= */}
+      {/* MODAL: ALTERAR SENHA                                                      */}
+      {/* ========================================================================= */}
       {isPasswordModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in">
           <div className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-2xl animate-scale-in">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
               <h3 className="font-extrabold text-slate-900 text-base">Alterar Senha</h3>
@@ -497,12 +848,20 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenAuth }) => {
               </div>
 
               {passwordFeedback && (
-                <p className="text-xs text-[#00D26A] font-semibold">{passwordFeedback}</p>
+                <p
+                  className={`text-xs font-semibold ${
+                    passwordFeedback.includes('sucesso')
+                      ? 'text-[#00D26A]'
+                      : 'text-rose-500'
+                  }`}
+                >
+                  {passwordFeedback}
+                </p>
               )}
 
               <button
                 type="submit"
-                className="w-full py-3 rounded-full bg-[#00D26A] text-white font-bold text-xs shadow-button-green"
+                className="w-full py-3 rounded-full bg-[#00D26A] text-white font-bold text-xs shadow-button-green cursor-pointer"
               >
                 Salvar Nova Senha
               </button>
@@ -511,16 +870,18 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenAuth }) => {
         </div>
       )}
 
-      {/* Modal Exclusão de Conta */}
+      {/* ========================================================================= */}
+      {/* MODAL: EXCLUSÃO DE CONTA                                                  */}
+      {/* ========================================================================= */}
       {isDeleteModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-fade-in">
           <div className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-2xl animate-scale-in">
             <div className="flex items-center gap-2 text-rose-600 mb-2">
               <AlertTriangle className="w-5 h-5 shrink-0" />
               <h3 className="font-bold text-slate-900 text-base">Excluir Conta</h3>
             </div>
             <p className="text-xs text-slate-600 mb-3 leading-relaxed">
-              Esta ação é <strong>irreversível</strong>. Todos os seus dados, metas e transações serão apagados.
+              Esta ação é <strong>irreversível</strong>. Todos os seus dados, metas e transações serão apagados permanentemente.
             </p>
 
             <p className="text-xs text-slate-500 mb-1">
@@ -537,15 +898,17 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenAuth }) => {
 
             <div className="flex items-center gap-2">
               <button
+                type="button"
                 onClick={() => setIsDeleteModalOpen(false)}
-                className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-semibold"
+                className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-semibold cursor-pointer"
               >
                 Cancelar
               </button>
               <button
+                type="button"
                 disabled={deleteConfirmationText !== 'EXCLUIR' || isDeleting}
                 onClick={handleDeleteAccount}
-                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-bold text-xs"
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-bold text-xs cursor-pointer"
               >
                 {isDeleting ? 'Excluindo...' : 'Confirmar'}
               </button>
@@ -553,6 +916,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenAuth }) => {
           </div>
         </div>
       )}
+
+      {/* Submodais Legais e Suporte */}
+      <TermsOfServiceModal isOpen={isTermsOpen} onClose={() => setIsTermsOpen(false)} />
+      <PrivacyPolicyModal isOpen={isPrivacyOpen} onClose={() => setIsPrivacyOpen(false)} />
+      <SupportModal isOpen={isSupportOpen} onClose={() => setIsSupportOpen(false)} />
     </div>
   );
 };

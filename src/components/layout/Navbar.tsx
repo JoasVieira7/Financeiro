@@ -20,18 +20,22 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenProfile, onOpenAuth }) => 
     .toUpperCase() || 'JS';
 
   return (
-    <header className="sticky top-0 z-30 w-full bg-[#FAFAFC]/95 backdrop-blur-md px-4 pt-3 pb-2">
-      <div className="max-w-md mx-auto flex items-center justify-between">
+    <header className="sticky top-0 z-30 w-full bg-[#FAFAFC]/95 backdrop-blur-md px-4 pt-safe pb-2">
+      <div className="max-w-md sm:max-w-xl md:max-w-2xl lg:max-w-3xl mx-auto flex items-center justify-between">
         {/* Left: User Avatar & Name */}
         <div
           onClick={onOpenProfile}
-          className="flex items-center gap-3 cursor-pointer select-none"
+          className="flex items-center gap-3 cursor-pointer select-none py-1"
         >
-          <div className="w-10 h-10 rounded-full bg-[#00D26A] flex items-center justify-center text-white font-extrabold text-sm shadow-sm">
-            {initials}
+          <div className="w-10 h-10 rounded-full overflow-hidden bg-[#00D26A] flex items-center justify-center text-white font-extrabold text-sm shadow-sm border border-slate-100 shrink-0">
+            {profile?.avatar_url ? (
+              <img src={profile.avatar_url} alt={firstName} className="w-full h-full object-cover" />
+            ) : (
+              <span>{initials}</span>
+            )}
           </div>
-          <div className="leading-tight">
-            <h1 className="font-extrabold text-base text-slate-900 tracking-tight flex items-center gap-1">
+          <div className="leading-tight min-w-0">
+            <h1 className="font-extrabold text-base text-slate-900 tracking-tight truncate flex items-center gap-1">
               Olá, {firstName}
             </h1>
             <p className="text-[11px] font-bold text-[#00D26A]">
@@ -43,8 +47,9 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenProfile, onOpenAuth }) => 
         {/* Right: Settings Icon */}
         <button
           onClick={onOpenProfile}
-          className="w-10 h-10 rounded-full flex items-center justify-center text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+          className="w-11 h-11 rounded-full flex items-center justify-center text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
           title="Configurações e Perfil"
+          aria-label="Abrir configurações e perfil"
         >
           <Settings className="w-5 h-5 text-slate-600" />
         </button>

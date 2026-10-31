@@ -14,16 +14,17 @@ export const BottomTabs: React.FC<BottomTabsProps> = ({
   onChangeTab,
 }) => {
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-xl border-t border-slate-100 px-6 pb-safe pt-2.5 shadow-sm">
-      <div className="max-w-md mx-auto flex items-center justify-between">
+    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-xl border-t border-slate-100 px-6 pb-safe pt-2 shadow-sm">
+      <div className="max-w-md sm:max-w-xl md:max-w-2xl lg:max-w-3xl mx-auto flex items-center justify-between">
         {/* Tab 1: Início */}
         <button
           onClick={() => onChangeTab('home')}
-          className={`flex flex-col items-center justify-center py-1 transition-all ${
+          className={`min-h-[44px] min-w-[48px] flex flex-col items-center justify-center py-1 transition-all cursor-pointer ${
             activeTab === 'home'
               ? 'text-[#00D26A] font-extrabold'
               : 'text-slate-400 hover:text-slate-600'
           }`}
+          aria-label="Ir para Início"
         >
           <Home className={`w-5 h-5 transition-transform ${activeTab === 'home' ? 'scale-110 stroke-[2.5]' : ''}`} />
           <span className="text-[10px] mt-1 font-semibold">Início</span>
@@ -32,11 +33,12 @@ export const BottomTabs: React.FC<BottomTabsProps> = ({
         {/* Tab 2: Histórico */}
         <button
           onClick={() => onChangeTab('transactions')}
-          className={`flex flex-col items-center justify-center py-1 transition-all ${
+          className={`min-h-[44px] min-w-[48px] flex flex-col items-center justify-center py-1 transition-all cursor-pointer ${
             activeTab === 'transactions'
               ? 'text-[#00D26A] font-extrabold'
               : 'text-slate-400 hover:text-slate-600'
           }`}
+          aria-label="Ir para Histórico de Transações"
         >
           <Receipt className={`w-5 h-5 transition-transform ${activeTab === 'transactions' ? 'scale-110 stroke-[2.5]' : ''}`} />
           <span className="text-[10px] mt-1 font-semibold">Histórico</span>
@@ -45,11 +47,12 @@ export const BottomTabs: React.FC<BottomTabsProps> = ({
         {/* Tab 3: Metas */}
         <button
           onClick={() => onChangeTab('goals')}
-          className={`flex flex-col items-center justify-center py-1 transition-all ${
+          className={`min-h-[44px] min-w-[48px] flex flex-col items-center justify-center py-1 transition-all cursor-pointer ${
             activeTab === 'goals'
               ? 'text-[#00D26A] font-extrabold'
               : 'text-slate-400 hover:text-slate-600'
           }`}
+          aria-label="Ir para Metas de Economia"
         >
           <Target className={`w-5 h-5 transition-transform ${activeTab === 'goals' ? 'scale-110 stroke-[2.5]' : ''}`} />
           <span className="text-[10px] mt-1 font-semibold">Metas</span>
@@ -58,11 +61,12 @@ export const BottomTabs: React.FC<BottomTabsProps> = ({
         {/* Tab 4: Perfil */}
         <button
           onClick={() => onChangeTab('profile')}
-          className={`flex flex-col items-center justify-center py-1 transition-all ${
+          className={`min-h-[44px] min-w-[48px] flex flex-col items-center justify-center py-1 transition-all cursor-pointer ${
             activeTab === 'profile'
               ? 'text-[#00D26A] font-extrabold'
               : 'text-slate-400 hover:text-slate-600'
           }`}
+          aria-label="Ir para Meu Perfil"
         >
           <User className={`w-5 h-5 transition-transform ${activeTab === 'profile' ? 'scale-110 stroke-[2.5]' : ''}`} />
           <span className="text-[10px] mt-1 font-semibold">Perfil</span>
