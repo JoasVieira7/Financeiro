@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { PaymentModal } from './PaymentModal';
 import { TermsOfServiceModal } from '../legal/TermsOfServiceModal';
 import { PrivacyPolicyModal } from '../legal/PrivacyPolicyModal';
@@ -12,13 +13,12 @@ import {
   Shield,
   Bell,
   ChevronRight,
-  LogOut,
-  Trash2,
   FileText,
   HelpCircle,
   X,
   AlertTriangle,
   Sparkles,
+  Save,
 } from 'lucide-react';
 
 interface ProfileViewProps {
@@ -42,6 +42,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenAuth }) => {
   const [isPrivacyOpen, setIsPrivacyOpen] = useState(false);
   const [isSupportOpen, setIsSupportOpen] = useState(false);
 
+  // Dados Pessoais modal
+  const [isDadosPessoaisOpen, setIsDadosPessoaisOpen] = useState(false);
+  const [editedName, setEditedName] = useState('');
+  const [dadosFeedback, setDadosFeedback] = useState<string | null>(null);
+  const [isSavingName, setIsSavingName] = useState(false);
+
   // Password & Delete modal states
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [newPassword, setNewPassword] = useState('');
@@ -59,6 +65,46 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenAuth }) => {
     .map(w => w[0])
     .join('')
     .toUpperCase() || 'AR';
+
+  const handleOpenDadosPessoais = () => {
+    setEditedName(profile?.full_name || '');
+    setDadosFeedback(null);
+    setIsDadosPessoaisOpen(true);
+  };
+
+  const handleSaveName = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = editedName.trim();
+    if (!trimmed) {
+      setDadosFeedback('O nome não pode estar vazio.');
+      return;
+    }
+    setIsSavingName(true);
+    setDadosFeedback(null);
+    try {
+      if (isSupabaseConfigured && user) {
+        const { error } = await supabase
+          .from('profiles')
+          .update({ full_name: trimmed })
+          .eq('id', user.id);
+        if (error) throw new Error(error.message);
+      }
+      // Atualiza localmente independente de demo ou real
+      if (profile) {
+        // Força re-render via referência nova (AuthContext lê de profile local)
+        Object.assign(profile, { full_name: trimmed });
+      }
+      setDadosFeedback('Nome atualizado com sucesso!');
+      setTimeout(() => {
+        setIsDadosPessoaisOpen(false);
+        setDadosFeedback(null);
+      }, 1200);
+    } catch (err: any) {
+      setDadosFeedback(err.message || 'Erro ao salvar. Tente novamente.');
+    } finally {
+      setIsSavingName(false);
+    }
+  };
 
   const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -186,7 +232,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenAuth }) => {
         <div className="space-y-2.5">
           {/* Dados Pessoais */}
           <div
-            onClick={() => onOpenAuth()}
+            onClick={handleOpenDadosPessoais}
             className="bg-white rounded-[22px] px-4 py-3.5 border border-slate-100 shadow-[0_6px_20px_rgba(0,0,0,0.03)] flex items-center justify-between cursor-pointer hover:border-slate-200 transition-colors"
           >
             <div className="flex items-center gap-3.5">
@@ -197,10 +243,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenAuth }) => {
                 Dados Pessoais
               </span>
             </div>
-            <div className="flex items-center gap-1.5 text-slate-400 text-xs font-semibold">
-              <span>42</span>
-              <ChevronRight className="w-4 h-4 text-slate-400" />
-            </div>
+            <ChevronRight className="w-4 h-4 text-slate-400" />
           </div>
 
           {/* Segurança e Senha */}
@@ -216,14 +259,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenAuth }) => {
                 Segurança e Senha
               </span>
             </div>
-            <div className="flex items-center gap-1.5 text-slate-400 text-xs font-semibold">
-              <span>42</span>
-              <ChevronRight className="w-4 h-4 text-slate-400" />
-            </div>
+            <ChevronRight className="w-4 h-4 text-slate-400" />
           </div>
 
-          {/* Notificações */}
-          <div className="bg-white rounded-[22px] px-4 py-3.5 border border-slate-100 shadow-[0_6px_20px_rgba(0,0,0,0.03)] flex items-center justify-between cursor-pointer hover:border-slate-200 transition-colors">
+          {/* Notificações — em breve, sem função */}
+          <div className="bg-white rounded-[22px] px-4 py-3.5 border border-slate-100 shadow-[0_6px_20px_rgba(0,0,0,0.03)] flex items-center justify-between opacity-60">
             <div className="flex items-center gap-3.5">
               <div className="w-10 h-10 rounded-full bg-[#E8FBF0] flex items-center justify-center text-[#00D26A] shrink-0">
                 <Bell className="w-5 h-5 stroke-[2.2]" />
@@ -232,10 +272,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenAuth }) => {
                 Notificações
               </span>
             </div>
-            <div className="flex items-center gap-1.5 text-slate-400 text-xs font-semibold">
-              <span>Ativadas</span>
-              <ChevronRight className="w-4 h-4 text-slate-400" />
-            </div>
+            <span className="text-xs font-semibold text-slate-400">Em breve</span>
           </div>
 
           {/* Central de Ajuda & FAQ */}
@@ -368,6 +405,67 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenAuth }) => {
       <TermsOfServiceModal isOpen={isTermsOpen} onClose={() => setIsTermsOpen(false)} />
       <PrivacyPolicyModal isOpen={isPrivacyOpen} onClose={() => setIsPrivacyOpen(false)} />
       <SupportModal isOpen={isSupportOpen} onClose={() => setIsSupportOpen(false)} />
+
+      {/* Modal Dados Pessoais */}
+      {isDadosPessoaisOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in"
+          onClick={() => setIsDadosPessoaisOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-2xl animate-scale-in"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+              <h3 className="font-extrabold text-slate-900 text-base">Dados Pessoais</h3>
+              <button
+                onClick={() => setIsDadosPessoaisOpen(false)}
+                className="w-7 h-7 rounded-full bg-slate-100 text-slate-500 hover:text-slate-900 flex items-center justify-center"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveName} className="space-y-4">
+              {/* Email (somente leitura) */}
+              <div>
+                <label className="text-xs text-slate-500 font-semibold block mb-1">E-mail</label>
+                <div className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-100 bg-slate-50 text-slate-400 font-medium select-none">
+                  {profile?.email || user?.email || '—'}
+                </div>
+              </div>
+
+              {/* Nome */}
+              <div>
+                <label className="text-xs text-slate-600 font-semibold block mb-1">Nome completo</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Seu nome"
+                  value={editedName}
+                  onChange={e => setEditedName(e.target.value)}
+                  className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 text-slate-900 focus:outline-none focus:border-[#00D26A] transition-colors"
+                />
+              </div>
+
+              {dadosFeedback && (
+                <p className={`text-xs font-semibold ${dadosFeedback.includes('sucesso') ? 'text-[#00D26A]' : 'text-rose-500'}`}>
+                  {dadosFeedback}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                disabled={isSavingName}
+                className="w-full py-3 rounded-full bg-[#00D26A] text-white font-bold text-xs shadow-button-green disabled:opacity-60 flex items-center justify-center gap-2"
+              >
+                <Save className="w-3.5 h-3.5" />
+                {isSavingName ? 'Salvando...' : 'Salvar'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Modal Alterar Senha */}
       {isPasswordModalOpen && (
