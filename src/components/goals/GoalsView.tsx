@@ -170,8 +170,15 @@ export const GoalsView: React.FC = () => {
           Meta da Semana
         </h3>
 
-        {/* Donut Chart */}
-        <DonutChart size={170} strokeWidth={38} />
+        {/* Donut Chart com dados reais da Meta da Semana */}
+        <DonutChart
+          progressPercentage={stats.weeklyGoalPercentage}
+          centerLabel="Economizado"
+          centerValue={formatCurrency(stats.weeklySavedAmount)}
+          size={170}
+          strokeWidth={34}
+          showCenterTotal={true}
+        />
 
         {/* Subtitle with Real User Data */}
         <p className="text-xs font-semibold text-slate-500 text-center mt-5">

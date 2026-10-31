@@ -18,6 +18,7 @@ import {
   HelpCircle,
   X,
   AlertTriangle,
+  Sparkles,
 } from 'lucide-react';
 
 interface ProfileViewProps {
@@ -31,9 +32,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenAuth }) => {
     signOut,
     updatePassword,
     deleteAccount,
+    replayOnboarding,
   } = useAuth();
 
   // Modals
+  const [isPreferencesOpen, setIsPreferencesOpen] = useState(false);
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [isTermsOpen, setIsTermsOpen] = useState(false);
   const [isPrivacyOpen, setIsPrivacyOpen] = useState(false);
@@ -84,6 +87,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenAuth }) => {
     setIsDeleteModalOpen(false);
   };
 
+  const handleReplayTutorial = () => {
+    setIsPreferencesOpen(false);
+    replayOnboarding();
+  };
+
   return (
     <div className="space-y-6 animate-fade-in pb-16 pt-1">
       {/* Top Header: "Meu Perfil" on left, Gear on right */}
@@ -92,9 +100,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenAuth }) => {
           Meu Perfil
         </h2>
         <button
-          onClick={() => setIsPasswordModalOpen(true)}
-          className="w-9 h-9 rounded-full flex items-center justify-center text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors"
-          title="Configurações"
+          onClick={() => setIsPreferencesOpen(true)}
+          className="w-9 h-9 rounded-full flex items-center justify-center text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
+          title="Preferências"
+          aria-label="Abrir preferências"
         >
           <Settings className="w-5 h-5 fill-slate-500 stroke-slate-600" />
         </button>
@@ -295,6 +304,64 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onOpenAuth }) => {
           Excluir Conta Permanentemente
         </button>
       </div>
+
+      {/* Modal Preferências */}
+      {isPreferencesOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in"
+          onClick={() => setIsPreferencesOpen(false)}
+        >
+          <div
+            className="w-full max-w-[380px] bg-white rounded-[32px] p-6 shadow-[0_16px_40px_rgba(0,0,0,0.08)] border border-slate-100 animate-scale-in"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Cabeçalho */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+              <h3 className="text-[18px] font-extrabold text-slate-900 tracking-tight">
+                Preferências
+              </h3>
+              <button
+                onClick={() => setIsPreferencesOpen(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center transition-colors cursor-pointer"
+                title="Fechar"
+                aria-label="Fechar preferências"
+              >
+                <X className="w-4 h-4 stroke-[2.5]" />
+              </button>
+            </div>
+
+            {/* Opções Reais */}
+            <div className="space-y-3">
+              <div
+                onClick={handleReplayTutorial}
+                className="w-full p-3.5 rounded-2xl bg-white hover:bg-slate-50 border border-slate-100 hover:border-slate-200 shadow-2xs flex items-center justify-between transition-all cursor-pointer active:scale-98"
+              >
+                <div className="flex items-center gap-3.5 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-[#E8FBF0] text-[#00D26A] flex items-center justify-center shrink-0">
+                    <Sparkles className="w-5 h-5 stroke-[2.2]" />
+                  </div>
+                  <div className="min-w-0 text-left">
+                    <h4 className="text-sm font-bold text-slate-900 truncate">
+                      Rever tutorial
+                    </h4>
+                    <p className="text-xs text-slate-500 mt-0.5 leading-snug">
+                      Veja novamente como usar o Financeiro Express.
+                    </p>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-400 shrink-0 ml-2" />
+              </div>
+            </div>
+
+            {/* Informações da Versão */}
+            <div className="pt-4 mt-4 border-t border-slate-100 text-center">
+              <span className="text-[11px] font-semibold text-slate-400 block">
+                Financeiro Express • Versão 2.1
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Submodals */}
       <PaymentModal isOpen={isPaymentOpen} onClose={() => setIsPaymentOpen(false)} />

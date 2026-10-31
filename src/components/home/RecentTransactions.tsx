@@ -1,6 +1,6 @@
 import React from 'react';
 import { useFinance } from '../../context/FinanceContext';
-import { formatCurrency } from '../../lib/formatters';
+import { formatCurrency, getTransactionDisplay } from '../../lib/formatters';
 import { Utensils, Wallet, Car, ShoppingBag, Store, Film, Tag } from 'lucide-react';
 import { TransactionCategory, Transaction } from '../../types';
 
@@ -70,6 +70,7 @@ export const RecentTransactions: React.FC<RecentTransactionsProps> = ({
         ) : (
           recentList.map(tx => {
             const isIncome = tx.type === 'income';
+            const display = getTransactionDisplay(tx);
             const { icon: Icon, bg, color } = getCategoryIcon(tx.category, isIncome);
 
             return (
@@ -84,10 +85,14 @@ export const RecentTransactions: React.FC<RecentTransactionsProps> = ({
                   </div>
                   <div className="min-w-0">
                     <h4 className="text-sm font-bold text-slate-900 truncate">
-                      {tx.description}
+                      {display.title}
                     </h4>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      {tx.category} • {new Date(tx.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                    <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1.5 truncate">
+                      <span>{display.subtitle}</span>
+                      <span>•</span>
+                      <span>
+                        {new Date(tx.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
                     </p>
                   </div>
                 </div>

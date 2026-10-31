@@ -45,3 +45,56 @@ export function formatRelativeTime(isoDate: string): string {
   return formatShortDate(isoDate);
 }
 
+export function formatPaymentMethod(method?: string): string {
+  switch (method) {
+    case 'pix':
+      return 'Pix';
+    case 'cartao_credito':
+      return 'Crédito';
+    case 'cartao_debito':
+      return 'Débito';
+    case 'dinheiro':
+      return 'Dinheiro';
+    case 'ted':
+      return 'TED';
+    default:
+      return 'Outros';
+  }
+}
+
+export interface TransactionDisplayInfo {
+  title: string;
+  subtitle: string;
+  isCustomMerchant: boolean;
+}
+
+export function getTransactionDisplay(tx: {
+  description?: string;
+  category: string;
+  payment_method?: string;
+}): TransactionDisplayInfo {
+  const cat = tx.category || 'Outros';
+  const desc = (tx.description || '').trim();
+  const methodLabel = formatPaymentMethod(tx.payment_method);
+
+  // Detecta se a descrição é vazia, igual à categoria ou formato legado tipo "Categoria (METODO)"
+  const isGeneric =
+    !desc ||
+    desc.toLowerCase() === cat.toLowerCase() ||
+    desc.toLowerCase().startsWith(`${cat.toLowerCase()} (`);
+
+  if (isGeneric) {
+    return {
+      title: cat,
+      subtitle: methodLabel,
+      isCustomMerchant: false,
+    };
+  }
+
+  return {
+    title: desc,
+    subtitle: `${cat} · ${methodLabel}`,
+    isCustomMerchant: true,
+  };
+}
+

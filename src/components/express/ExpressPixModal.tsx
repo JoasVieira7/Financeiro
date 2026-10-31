@@ -76,7 +76,12 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
         setSelectedCategory(editingTransaction.category);
         setTxType(editingTransaction.type || 'expense');
         setPaymentMethod(editingTransaction.payment_method || 'pix');
-        setDescription(editingTransaction.description || '');
+        const rawDesc = (editingTransaction.description || '').trim();
+        const isGeneric =
+          !rawDesc ||
+          rawDesc.toLowerCase() === editingTransaction.category.toLowerCase() ||
+          rawDesc.toLowerCase().startsWith(`${editingTransaction.category.toLowerCase()} (`);
+        setDescription(isGeneric ? '' : rawDesc);
       } else {
         setAmountStr('0,00');
         setSelectedCategory('Alimentação');
@@ -120,13 +125,15 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
     setErrorMessage(null);
 
     try {
+      const finalDescription = description.trim() || selectedCategory;
+
       if (editingTransaction) {
         const res = await updateTransaction(editingTransaction.id, {
           amount: val,
           category: selectedCategory,
           type: txType,
           payment_method: paymentMethod,
-          description: description.trim() || `${selectedCategory} (${paymentMethod.toUpperCase()})`,
+          description: finalDescription,
         });
 
         if (res.error) {
@@ -146,7 +153,7 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
           val,
           selectedCategory,
           paymentMethod,
-          description.trim() || `${selectedCategory} (${paymentMethod.toUpperCase()})`,
+          finalDescription,
           txType
         );
 
@@ -298,6 +305,30 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
               </button>
             );
           })}
+        </div>
+
+        {/* Campo Opcional: Estabelecimento / Detalhe */}
+        <div className="mt-3">
+          <div className="relative flex items-center">
+            <input
+              type="text"
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              placeholder="Estabelecimento ou detalhe (ex: Atacadão, Uber, Padaria)"
+              className="w-full h-11 px-4 text-xs font-semibold text-slate-800 placeholder:text-slate-400 placeholder:font-normal bg-slate-50 border border-slate-200/90 rounded-2xl focus:outline-none focus:border-[#00D26A] focus:bg-white transition-all shadow-2xs"
+              maxLength={60}
+            />
+            {description && (
+              <button
+                type="button"
+                onClick={() => setDescription('')}
+                className="absolute right-3 p-1 text-slate-400 hover:text-slate-600 rounded-full cursor-pointer transition-colors"
+                title="Limpar campo"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Section: Selecione a Categoria (Matching Image 4) */}

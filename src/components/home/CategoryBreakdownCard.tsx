@@ -29,10 +29,17 @@ export const CategoryBreakdownCard: React.FC<CategoryBreakdownCardProps> = ({ on
         onClick={onGoToReports}
         className="bg-white rounded-3xl p-6 border border-slate-100 shadow-card flex flex-col items-center justify-center cursor-pointer hover:border-slate-200 transition-colors"
       >
-        <DonutChart size={170} strokeWidth={38} />
+        <DonutChart
+          data={stats.categoryBreakdown}
+          totalAmount={stats.monthlyExpense}
+          size={170}
+          strokeWidth={34}
+          showCenterTotal={true}
+          centerLabel="Total Gasto"
+        />
 
         {/* Real User Top Categories Legend */}
-        {topCategories.length > 0 && (
+        {topCategories.length > 0 ? (
           <div className="w-full grid grid-cols-3 gap-2 mt-5 pt-4 border-t border-slate-50 text-center">
             {topCategories.map(cat => (
               <div key={cat.category} className="space-y-0.5">
@@ -51,6 +58,15 @@ export const CategoryBreakdownCard: React.FC<CategoryBreakdownCardProps> = ({ on
                 </span>
               </div>
             ))}
+          </div>
+        ) : (
+          <div className="w-full mt-5 pt-4 border-t border-slate-50 text-center">
+            <p className="text-xs font-semibold text-slate-400">
+              Nenhuma despesa registrada este mês
+            </p>
+            <p className="text-[11px] font-medium text-slate-400 mt-0.5">
+              Toque no botão verde abaixo para registrar seu primeiro gasto
+            </p>
           </div>
         )}
       </div>

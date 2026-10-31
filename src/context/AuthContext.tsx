@@ -11,6 +11,8 @@ interface AuthContextType {
   hasSeenOnboarding: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signUp: (email: string, password: string, fullName: string) => Promise<{ error: string | null }>;
+  signInWithOAuth: (provider: 'google' | 'apple') => Promise<{ error: string | null }>;
+  startDemoSession: () => void;
   resetPassword: (email: string) => Promise<{ error: string | null }>;
   updatePassword: (newPassword: string) => Promise<{ error: string | null }>;
   deleteAccount: () => Promise<{ error: string | null }>;
@@ -41,6 +43,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Load session
   useEffect(() => {
     async function initAuth() {
+      // 1. Verifica sessão real no Supabase caso configurado
       if (isSupabaseConfigured) {
         try {
           const { data: { session }, error } = await supabase.auth.getSession();
@@ -54,23 +57,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             return;
           }
         } catch (err) {
-          console.warn('Supabase auth session check failed, using sandbox mode:', err);
+          console.warn('Supabase auth session check failed:', err);
         }
       }
 
-      // Demo/Local session fallback
+      // 2. Se não há sessão Supabase, verifica se há sessão demo voluntária salva no localStorage
       const savedProfile = localStorage.getItem(LOCAL_STORAGE_PROFILE_KEY);
       if (savedProfile) {
         try {
           const parsed = JSON.parse(savedProfile);
-          setProfile(parsed);
-          setUser({ id: parsed.id, email: parsed.email });
+          if (parsed && parsed.id && parsed.email) {
+            setProfile(parsed);
+            setUser({ id: parsed.id, email: parsed.email });
+            setIsDemo(true);
+            setLoading(false);
+            return;
+          }
         } catch (e) {
-          useDefaultDemoUser();
+          localStorage.removeItem(LOCAL_STORAGE_PROFILE_KEY);
         }
-      } else {
-        useDefaultDemoUser();
       }
+
+      // 3. Sem sessão ativa: NUNCA loga automaticamente. Mantém user = null para exibir tela de login.
+      setUser(null);
+      setProfile(null);
+      setIsDemo(!isSupabaseConfigured);
       setLoading(false);
     }
 
@@ -83,8 +94,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           await fetchSupabaseProfile(session.user.id, session.user.email || '');
           setIsDemo(false);
         } else {
+          // Se deslogou no Supabase, limpa estados
           setUser(null);
           setProfile(null);
+          localStorage.removeItem(LOCAL_STORAGE_PROFILE_KEY);
         }
       });
 
@@ -94,7 +107,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  const useDefaultDemoUser = () => {
+  // Inicia sessão de demonstração voluntária e explícita
+  const startDemoSession = () => {
     const defaultUser = DEMO_USERS[0];
     setProfile(defaultUser);
     setUser({ id: defaultUser.id, email: defaultUser.email });
@@ -137,7 +151,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signIn = async (email: string, password: string): Promise<{ error: string | null }> => {
-    if (isSupabaseConfigured && !isDemo) {
+    if (isSupabaseConfigured) {
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -146,44 +160,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (data.user) {
         setUser({ id: data.user.id, email: data.user.email || '' });
         await fetchSupabaseProfile(data.user.id, data.user.email || '');
+        setIsDemo(false);
       }
       return { error: null };
     }
 
-    // Demo Mode Sign In
-    const knownUsers = [...DEMO_USERS];
-    const customUsers = JSON.parse(localStorage.getItem(LOCAL_STORAGE_USERS_KEY) || '[]');
-    const allUsers = [...knownUsers, ...customUsers];
-
-    const match = allUsers.find(u => u.email.toLowerCase() === email.toLowerCase());
-    if (match) {
-      setProfile(match);
-      setUser({ id: match.id, email: match.email });
-      localStorage.setItem(LOCAL_STORAGE_PROFILE_KEY, JSON.stringify(match));
-      return { error: null };
-    }
-
-    const newDemoUser: UserProfile = {
-      id: `user-${Date.now()}`,
-      email,
-      full_name: email.split('@')[0],
-      plan_tier: 'free',
-      subscription_status: 'trialing',
-      monthly_budget: 3500.00,
-      weekly_saving_target: 250.00,
-      trial_ends_at: new Date(Date.now() + 7 * 86400000).toISOString(),
-      created_at: new Date().toISOString(),
+    // Se o Supabase não estiver configurado, não cria sessão fictícia: orienta com clareza
+    return {
+      error: 'O Supabase não está configurado neste ambiente. Conecte sua instância ou clique em "Experimentar demonstração" para testar o aplicativo.',
     };
-    customUsers.push(newDemoUser);
-    localStorage.setItem(LOCAL_STORAGE_USERS_KEY, JSON.stringify(customUsers));
-    setProfile(newDemoUser);
-    setUser({ id: newDemoUser.id, email: newDemoUser.email });
-    localStorage.setItem(LOCAL_STORAGE_PROFILE_KEY, JSON.stringify(newDemoUser));
-    return { error: null };
   };
 
   const signUp = async (email: string, password: string, fullName: string): Promise<{ error: string | null }> => {
-    if (isSupabaseConfigured && !isDemo) {
+    if (isSupabaseConfigured) {
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -195,40 +184,49 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (data.user) {
         setUser({ id: data.user.id, email: data.user.email || '' });
         await fetchSupabaseProfile(data.user.id, data.user.email || '');
+        setIsDemo(false);
       }
       return { error: null };
     }
 
-    const customUsers = JSON.parse(localStorage.getItem(LOCAL_STORAGE_USERS_KEY) || '[]');
-    const newDemoUser: UserProfile = {
-      id: `user-${Date.now()}`,
-      email,
-      full_name: fullName || email.split('@')[0],
-      plan_tier: 'free',
-      subscription_status: 'trialing',
-      monthly_budget: 3500.00,
-      weekly_saving_target: 250.00,
-      trial_ends_at: new Date(Date.now() + 7 * 86400000).toISOString(),
-      created_at: new Date().toISOString(),
+    return {
+      error: 'O cadastro em nuvem requer o Supabase configurado. Utilize a opção "Experimentar demonstração" para explorar as funcionalidades.',
     };
-    customUsers.push(newDemoUser);
-    localStorage.setItem(LOCAL_STORAGE_USERS_KEY, JSON.stringify(customUsers));
-    setProfile(newDemoUser);
-    setUser({ id: newDemoUser.id, email: newDemoUser.email });
-    localStorage.setItem(LOCAL_STORAGE_PROFILE_KEY, JSON.stringify(newDemoUser));
-    return { error: null };
+  };
+
+  const signInWithOAuth = async (provider: 'google' | 'apple'): Promise<{ error: string | null }> => {
+    if (!isSupabaseConfigured) {
+      return {
+        error: `O login com ${provider === 'google' ? 'Google' : 'Apple'} requer o Supabase configurado com provedor OAuth ativo. Use a opção "Experimentar demonstração" para testar o app.`,
+      };
+    }
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: {
+          redirectTo: window.location.origin,
+        },
+      });
+      if (error) {
+        return { error: `Erro no login com ${provider === 'google' ? 'Google' : 'Apple'}: ${error.message}` };
+      }
+      return { error: null };
+    } catch (err: any) {
+      return { error: err.message || `Erro ao inicializar login com ${provider}.` };
+    }
   };
 
   const resetPassword = async (email: string): Promise<{ error: string | null }> => {
-    if (isSupabaseConfigured && !isDemo) {
+    if (isSupabaseConfigured) {
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: window.location.origin,
       });
       if (error) return { error: error.message };
       return { error: null };
     }
-    // Sandbox simulated reset
-    return { error: null };
+    return {
+      error: 'A recuperação de senha em nuvem requer conexão ativa com o Supabase.',
+    };
   };
 
   const updatePassword = async (newPassword: string): Promise<{ error: string | null }> => {
@@ -258,16 +256,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Clean local storage for this user
     setUser(null);
     setProfile(null);
+    setIsDemo(false);
     localStorage.removeItem(LOCAL_STORAGE_PROFILE_KEY);
     return { error: null };
   };
 
   const signOut = async () => {
     if (isSupabaseConfigured && !isDemo) {
-      await supabase.auth.signOut();
+      try {
+        await supabase.auth.signOut();
+      } catch (err) {
+        console.warn('Erro ao deslogar do Supabase:', err);
+      }
     }
     setUser(null);
     setProfile(null);
+    setIsDemo(false);
     localStorage.removeItem(LOCAL_STORAGE_PROFILE_KEY);
   };
 
@@ -318,7 +322,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const toggleDemoMode = (enabled: boolean) => {
     setIsDemo(enabled);
     if (enabled) {
-      useDefaultDemoUser();
+      startDemoSession();
     }
   };
 
@@ -341,6 +345,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         hasSeenOnboarding,
         signIn,
         signUp,
+        signInWithOAuth,
+        startDemoSession,
         resetPassword,
         updatePassword,
         deleteAccount,

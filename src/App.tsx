@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Navbar } from './components/layout/Navbar';
 import { BottomTabs, TabType } from './components/layout/BottomTabs';
 import { BalanceOverview } from './components/home/BalanceOverview';
@@ -21,6 +21,10 @@ export const App: React.FC = () => {
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(!hasSeenOnboarding);
+
+  useEffect(() => {
+    setIsOnboardingOpen(!hasSeenOnboarding);
+  }, [hasSeenOnboarding]);
 
   const handleOpenEdit = (tx: Transaction) => {
     setEditingTransaction(tx);

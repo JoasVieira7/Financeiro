@@ -14,7 +14,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onClose,
   isFullScreen = false,
 }) => {
-  const { signIn, signUp, resetPassword, switchDemoUser } = useAuth();
+  const { signIn, signUp, signInWithOAuth, startDemoSession, resetPassword } = useAuth();
   const [mode, setMode] = useState<'signin' | 'signup' | 'forgot'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -33,25 +33,45 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
     try {
       if (mode === 'signin') {
-        const res = await signIn(email || DEMO_USERS[0].email, password || 'demo123');
+        if (!email.trim() || !password) {
+          setErrorMsg('Por favor, informe seu e-mail e senha.');
+          setLoading(false);
+          return;
+        }
+        const res = await signIn(email.trim(), password);
         if (res.error) {
           setErrorMsg(res.error);
         } else {
           onClose?.();
         }
       } else if (mode === 'signup') {
-        const res = await signUp(email, password, fullName || 'Novo Usuário');
+        if (!email.trim() || !password) {
+          setErrorMsg('Por favor, informe e-mail e senha para criar a conta.');
+          setLoading(false);
+          return;
+        }
+        if (password.length < 6) {
+          setErrorMsg('A senha deve ter pelo menos 6 caracteres.');
+          setLoading(false);
+          return;
+        }
+        const res = await signUp(email.trim(), password, fullName.trim() || 'Novo Usuário');
         if (res.error) {
           setErrorMsg(res.error);
         } else {
           onClose?.();
         }
       } else if (mode === 'forgot') {
-        const res = await resetPassword(email);
+        if (!email.trim()) {
+          setErrorMsg('Informe o e-mail cadastrado para recuperação.');
+          setLoading(false);
+          return;
+        }
+        const res = await resetPassword(email.trim());
         if (res.error) {
           setErrorMsg(res.error);
         } else {
-          setSuccessMsg('E-mail de recuperação enviado com sucesso!');
+          setSuccessMsg('E-mail de recuperação enviado! Verifique sua caixa de entrada.');
         }
       }
     } catch (err: any) {
@@ -61,8 +81,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
-  const handleSelectQuickDemo = (userId: string) => {
-    switchDemoUser(userId);
+  const handleOAuth = async (provider: 'google' | 'apple') => {
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    setLoading(true);
+    try {
+      const res = await signInWithOAuth(provider);
+      if (res.error) {
+        setErrorMsg(res.error);
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || `Erro ao inicializar login com ${provider}.`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleStartDemo = () => {
+    startDemoSession();
     onClose?.();
   };
 
@@ -256,7 +292,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <div className="grid grid-cols-2 gap-3">
               <button
                 type="button"
-                onClick={() => handleSelectQuickDemo(DEMO_USERS[0].id)}
+                onClick={() => handleOAuth('google')}
                 className="h-[48px] rounded-full border border-slate-200 hover:border-slate-300 bg-white flex items-center justify-center gap-2.5 transition-colors active:scale-98 shadow-xs cursor-pointer"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24">
@@ -282,7 +318,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
               <button
                 type="button"
-                onClick={() => handleSelectQuickDemo(DEMO_USERS[1].id)}
+                onClick={() => handleOAuth('apple')}
                 className="h-[48px] rounded-full border border-slate-200 hover:border-slate-300 bg-white flex items-center justify-center gap-2.5 transition-colors active:scale-98 shadow-xs cursor-pointer"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="#000000">
@@ -291,7 +327,30 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <span className="text-[13.5px] font-bold text-slate-700">Apple</span>
               </button>
             </div>
+
+            {/* Opção Explícita de Demonstração */}
+            <div className="pt-3.5">
+              <button
+                type="button"
+                onClick={handleStartDemo}
+                className="w-full h-[46px] rounded-full border border-emerald-200 hover:border-emerald-300 bg-emerald-50/70 hover:bg-emerald-100/80 text-emerald-800 text-[13px] font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-xs active:scale-98"
+              >
+                <span>✨ Experimentar Demonstração (Sem Cadastro)</span>
+              </button>
+            </div>
           </>
+        )}
+
+        {mode === 'signup' && (
+          <div className="pt-3 text-center">
+            <button
+              type="button"
+              onClick={handleStartDemo}
+              className="text-xs font-semibold text-emerald-700 hover:underline cursor-pointer"
+            >
+              Quer testar antes? Experimente a demonstração offline
+            </button>
+          </div>
         )}
       </div>
 
