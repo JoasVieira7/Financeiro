@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useFinance } from '../../context/FinanceContext';
 import { useAuth } from '../../context/AuthContext';
 import { formatCurrency } from '../../lib/formatters';
+import { weeklyToMonthly } from '../../lib/budgetCalculations';
 import { DonutChart } from '../common/DonutChart';
 import { PlanComparisonModal } from '../profile/PaymentModal';
 import {
@@ -19,9 +20,50 @@ import {
   Lock,
   Target,
   Check,
+  Calendar,
 } from 'lucide-react';
-import { SavingsGoal, TransactionCategory, PLAN_LIMITS } from '../../types';
+import { SavingsGoal, TransactionCategory, PLAN_LIMITS, GoalPeriodType } from '../../types';
 import confetti from 'canvas-confetti';
+
+type GoalFilter = 'all' | 'monthly' | 'custom' | 'completed';
+
+function getWeekBounds(): { start: string; end: string } {
+  const now = new Date();
+  const day = now.getDay(); // 0=Sun, 1=Mon ...
+  const diffToMonday = (day === 0 ? -6 : 1 - day);
+  const monday = new Date(now);
+  monday.setDate(now.getDate() + diffToMonday);
+  monday.setHours(0, 0, 0, 0);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  sunday.setHours(23, 59, 59, 999);
+  return {
+    start: monday.toISOString().slice(0, 10),
+    end: sunday.toISOString().slice(0, 10),
+  };
+}
+
+function getMonthBounds(): { start: string; end: string } {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), 1);
+  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  return {
+    start: start.toISOString().slice(0, 10),
+    end: end.toISOString().slice(0, 10),
+  };
+}
+
+const periodTypeLabel: Record<GoalPeriodType, string> = {
+  weekly: 'Semanal',
+  monthly: 'Mensal',
+  custom: 'Objetivo Geral',
+};
+
+const periodTypeBadgeClass: Record<GoalPeriodType, string> = {
+  weekly: 'bg-blue-50 text-blue-600 border border-blue-200',
+  monthly: 'bg-purple-50 text-purple-600 border border-purple-200',
+  custom: 'bg-slate-100 text-slate-600 border border-slate-200',
+};
 
 export const GoalsView: React.FC = () => {
   const {
@@ -35,7 +77,13 @@ export const GoalsView: React.FC = () => {
     getGoalContributions,
     updateCategoryLimit,
   } = useFinance();
-  const { profile } = useAuth();
+  const { profile, setBudgetPeriodPreference } = useAuth();
+
+  // Período ativo do card principal sincronizado com preferência do perfil
+  const mainPeriodView = profile?.budget_period_preference || 'monthly';
+
+  // Filter tabs
+  const [goalFilter, setGoalFilter] = useState<GoalFilter>('all');
 
   // Create Goal Modal
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -43,6 +91,7 @@ export const GoalsView: React.FC = () => {
   const [title, setTitle] = useState('');
   const [targetAmount, setTargetAmount] = useState('');
   const [deadline, setDeadline] = useState('');
+  const [newPeriodType, setNewPeriodType] = useState<GoalPeriodType>('custom');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Contribute/Withdraw Modal
@@ -54,6 +103,15 @@ export const GoalsView: React.FC = () => {
 
   // History Modal
   const [historyGoal, setHistoryGoal] = useState<SavingsGoal | null>(null);
+
+  // Edit Goal Modal
+  const [editingGoal, setEditingGoal] = useState<SavingsGoal | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editTargetAmount, setEditTargetAmount] = useState('');
+  const [editDeadline, setEditDeadline] = useState('');
+  const [editPeriodType, setEditPeriodType] = useState<GoalPeriodType>('custom');
+  const [editErrorMsg, setEditErrorMsg] = useState<string | null>(null);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   // Edit Category Limit Modal
   const [editingCategory, setEditingCategory] = useState<{
@@ -70,6 +128,22 @@ export const GoalsView: React.FC = () => {
   ).length;
   const isAtGoalLimit = isFreePlan && activeGoalsCount >= maxGoals;
 
+  // Main period card values (exclusivamente mensal)
+  const weeklyTarget = profile?.weekly_saving_target || 250;
+  const monthlyTarget = weeklyToMonthly(weeklyTarget);
+  const mainTarget = monthlyTarget;
+  const mainSaved = stats.monthlySavedAmount ?? 0;
+  const mainPct =
+    stats.monthlyGoalPercentage ??
+    (monthlyTarget > 0 ? Math.min(100, Math.round((mainSaved / monthlyTarget) * 100)) : 0);
+
+  // Filtered goals list
+  const filteredGoals = goals.filter(goal => {
+    if (goalFilter === 'completed') return goal.is_completed;
+    if (goalFilter === 'all') return !goal.is_completed;
+    return !goal.is_completed && (goal.period_type ?? 'custom') === goalFilter;
+  });
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
@@ -79,7 +153,33 @@ export const GoalsView: React.FC = () => {
       return;
     }
 
-    const res = await addSavingsGoal(title.trim(), val, deadline || undefined);
+    // Calculate start/end dates based on period_type
+    let startDate: string | undefined;
+    let endDate: string | undefined;
+    let deadlineArg: string | undefined = deadline || undefined;
+
+    if (newPeriodType === 'weekly') {
+      const bounds = getWeekBounds();
+      startDate = bounds.start;
+      endDate = bounds.end;
+      deadlineArg = bounds.end;
+    } else if (newPeriodType === 'monthly') {
+      const bounds = getMonthBounds();
+      startDate = bounds.start;
+      endDate = bounds.end;
+      deadlineArg = bounds.end;
+    }
+
+    const res = await addSavingsGoal(
+      title.trim(),
+      val,
+      deadlineArg,
+      undefined,
+      undefined,
+      newPeriodType,
+      startDate,
+      endDate
+    );
     if (!res.success) {
       setErrorMsg(res.error || 'Erro ao criar meta.');
       return;
@@ -88,6 +188,7 @@ export const GoalsView: React.FC = () => {
     setTitle('');
     setTargetAmount('');
     setDeadline('');
+    setNewPeriodType('custom');
     setIsAddOpen(false);
 
     confetti({
@@ -95,6 +196,61 @@ export const GoalsView: React.FC = () => {
       spread: 60,
       origin: { y: 0.6 },
     });
+  };
+
+  const handleOpenEditGoal = (goal: SavingsGoal) => {
+    setEditingGoal(goal);
+    setEditTitle(goal.title);
+    setEditTargetAmount(goal.target_amount.toString());
+    setEditDeadline(goal.deadline || '');
+    setEditPeriodType(goal.period_type || 'custom');
+    setEditErrorMsg(null);
+  };
+
+  const handleSaveEditGoal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingGoal) return;
+    setEditErrorMsg(null);
+
+    const val = parseFloat(editTargetAmount.replace(',', '.'));
+    if (!editTitle.trim() || isNaN(val) || val <= 0) {
+      setEditErrorMsg('Preencha um título e um valor válido.');
+      return;
+    }
+
+    let startDate: string | undefined;
+    let endDate: string | undefined;
+    let deadlineArg: string | undefined = editDeadline || undefined;
+
+    if (editPeriodType === 'weekly') {
+      const bounds = getWeekBounds();
+      startDate = bounds.start;
+      endDate = bounds.end;
+      deadlineArg = bounds.end;
+    } else if (editPeriodType === 'monthly') {
+      const bounds = getMonthBounds();
+      startDate = bounds.start;
+      endDate = bounds.end;
+      deadlineArg = bounds.end;
+    }
+
+    setIsSavingEdit(true);
+    const res = await updateSavingsGoal(editingGoal.id, {
+      title: editTitle.trim(),
+      target_amount: val,
+      period_type: editPeriodType,
+      deadline: deadlineArg,
+      start_date: startDate,
+      end_date: endDate,
+    });
+    setIsSavingEdit(false);
+
+    if (!res.success) {
+      setEditErrorMsg(res.error || 'Erro ao atualizar meta.');
+      return;
+    }
+
+    setEditingGoal(null);
   };
 
   const handleContributeSubmit = async (e: React.FormEvent) => {
@@ -170,26 +326,26 @@ export const GoalsView: React.FC = () => {
         </p>
       </div>
 
-      {/* Card 1: Meta da Semana (with Donut Chart - Matching Image 2) */}
+      {/* Card 1: Meta de Economia do Mês */}
       <div className="bg-white rounded-3xl p-6 border border-emerald-200/80 shadow-card flex flex-col items-center">
         <h3 className="text-sm font-bold text-slate-900 text-center mb-4">
-          Meta da Semana
+          Meta de Economia do Mês
         </h3>
 
-        {/* Donut Chart com dados reais da Meta da Semana */}
+        {/* Donut Chart com dados reais */}
         <DonutChart
-          progressPercentage={stats.weeklyGoalPercentage}
+          progressPercentage={mainPct}
           centerLabel="Economizado"
-          centerValue={formatCurrency(stats.weeklySavedAmount)}
+          centerValue={formatCurrency(mainSaved)}
           size={170}
           strokeWidth={34}
           showCenterTotal={true}
         />
 
-        {/* Subtitle with Real User Data */}
+        {/* Subtitle */}
         <p className="text-xs font-semibold text-slate-500 text-center mt-5">
-          Você economizou {formatCurrency(stats.weeklySavedAmount)} da meta semanal de{' '}
-          {formatCurrency(profile?.weekly_saving_target || 250)}
+          Você economizou {formatCurrency(mainSaved)} da meta mensal de{' '}
+          {formatCurrency(mainTarget)}
         </p>
       </div>
 
@@ -214,27 +370,63 @@ export const GoalsView: React.FC = () => {
           </button>
         </div>
 
-        {goals.length === 0 ? (
+        {/* Filter Tabs */}
+        <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
+          {(
+            [
+              { key: 'all', label: 'Ativas' },
+              { key: 'monthly', label: 'Mensais' },
+              { key: 'custom', label: 'Objetivos' },
+              { key: 'completed', label: 'Concluídas' },
+            ] as { key: GoalFilter; label: string }[]
+          ).map(tab => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setGoalFilter(tab.key)}
+              className={`px-3 py-1.5 rounded-full text-[11px] font-bold whitespace-nowrap transition-all cursor-pointer ${
+                goalFilter === tab.key
+                  ? 'bg-slate-900 text-white shadow-sm'
+                  : 'bg-white text-slate-600 border border-slate-200 hover:border-slate-300'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {filteredGoals.length === 0 ? (
           <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-card text-center">
             <Target className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-            <p className="text-xs font-bold text-slate-700">Nenhuma meta criada ainda</p>
-            <p className="text-[11px] text-slate-400 mt-0.5 mb-3">
-              Defina um objetivo financeiro e acompanhe seu progresso real.
+            <p className="text-xs font-bold text-slate-700">
+              {goalFilter === 'completed'
+                ? 'Nenhuma meta concluída'
+                : goalFilter === 'all' && goals.length === 0
+                ? 'Nenhuma meta criada ainda'
+                : 'Nenhuma meta nesta categoria'}
             </p>
-            <button
-              onClick={() => setIsAddOpen(true)}
-              className="px-4 py-2 rounded-full bg-[#00D26A] text-white text-xs font-bold shadow-xs cursor-pointer"
-            >
-              Criar Primeira Meta
-            </button>
+            <p className="text-[11px] text-slate-400 mt-0.5 mb-3">
+              {goalFilter === 'all' && goals.length === 0
+                ? 'Defina um objetivo financeiro e acompanhe seu progresso real.'
+                : 'Tente outro filtro ou crie uma nova meta.'}
+            </p>
+            {goalFilter === 'all' && goals.length === 0 && (
+              <button
+                onClick={() => setIsAddOpen(true)}
+                className="px-4 py-2 rounded-full bg-[#00D26A] text-white text-xs font-bold shadow-xs cursor-pointer"
+              >
+                Criar Primeira Meta
+              </button>
+            )}
           </div>
         ) : (
           <div className="space-y-3">
-            {goals.map(goal => {
+            {filteredGoals.map(goal => {
               const current = Number(goal.current_amount || 0);
               const target = Number(goal.target_amount || 1);
               const pct = Math.min(100, Math.round((current / target) * 100));
               const remaining = Math.max(0, target - current);
+              const pType = (goal.period_type ?? 'custom') as GoalPeriodType;
 
               return (
                 <div
@@ -247,6 +439,13 @@ export const GoalsView: React.FC = () => {
                         <Target className="w-5 h-5 stroke-[2.2]" />
                       </div>
                       <div>
+                        {/* Period Badge */}
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold mb-1 ${periodTypeBadgeClass[pType]}`}
+                        >
+                          <Calendar className="w-3 h-3" />
+                          {periodTypeLabel[pType]}
+                        </span>
                         <h4 className="text-sm font-bold text-slate-900">{goal.title}</h4>
                         <div className="flex items-center gap-2 mt-0.5">
                           <span className="text-xs font-extrabold text-[#00D26A] font-mono">
@@ -275,6 +474,13 @@ export const GoalsView: React.FC = () => {
                         }`}
                       >
                         <Check className="w-4 h-4 stroke-[2.5]" />
+                      </button>
+                      <button
+                        onClick={() => handleOpenEditGoal(goal)}
+                        title="Editar Meta"
+                        className="p-1.5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+                      >
+                        <Edit2 className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => setHistoryGoal(goal)}
@@ -494,6 +700,37 @@ export const GoalsView: React.FC = () => {
                   </div>
                 )}
 
+                {/* Tipo de período */}
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-2">
+                    Tipo de Meta
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(
+                      [
+                        { value: 'monthly', label: 'Mensal', desc: 'Este mês' },
+                        { value: 'custom', label: 'Objetivo', desc: 'Livre / Prazo' },
+                      ] as { value: GoalPeriodType; label: string; desc: string }[]
+                    ).map(opt => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setNewPeriodType(opt.value)}
+                        className={`p-2.5 rounded-2xl border text-center transition-all cursor-pointer ${
+                          newPeriodType === opt.value
+                            ? 'border-[#00D26A] bg-[#E8FBF0]'
+                            : 'border-slate-200 bg-white hover:border-slate-300'
+                        }`}
+                      >
+                        <span className={`text-xs font-bold block ${newPeriodType === opt.value ? 'text-[#00B85E]' : 'text-slate-800'}`}>
+                          {opt.label}
+                        </span>
+                        <span className="text-[10px] text-slate-400">{opt.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <div>
                   <label className="text-xs font-bold text-slate-700 block mb-1">
                     Nome do Objetivo
@@ -523,17 +760,26 @@ export const GoalsView: React.FC = () => {
                   />
                 </div>
 
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">
-                    Prazo Estimado (Opcional)
-                  </label>
-                  <input
-                    type="date"
-                    value={deadline}
-                    onChange={e => setDeadline(e.target.value)}
-                    className="w-full text-xs px-3.5 py-3 rounded-2xl border border-slate-200 text-slate-900 focus:outline-none focus:border-[#00D26A]"
-                  />
-                </div>
+                {/* Prazo só aparece quando tipo é "custom" */}
+                {newPeriodType === 'custom' && (
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">
+                      Prazo Estimado (Opcional)
+                    </label>
+                    <input
+                      type="date"
+                      value={deadline}
+                      onChange={e => setDeadline(e.target.value)}
+                      className="w-full text-xs px-3.5 py-3 rounded-2xl border border-slate-200 text-slate-900 focus:outline-none focus:border-[#00D26A]"
+                    />
+                  </div>
+                )}
+
+                {newPeriodType === 'monthly' && (
+                  <p className="text-[11px] text-slate-400 bg-slate-50 rounded-xl px-3 py-2">
+                    Período: {getMonthBounds().start} → {getMonthBounds().end}
+                  </p>
+                )}
 
                 <button
                   type="submit"
@@ -543,6 +789,127 @@ export const GoalsView: React.FC = () => {
                 </button>
               </form>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal 1.5: Editar Meta Existente */}
+      {editingGoal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-2xl animate-scale-in">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <Edit2 className="w-4 h-4 text-[#00D26A]" />
+                Editar Meta de Economia
+              </h3>
+              <button
+                onClick={() => setEditingGoal(null)}
+                className="w-7 h-7 rounded-full bg-slate-100 text-slate-500 hover:text-slate-900 flex items-center justify-center cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditGoal} className="space-y-3.5">
+              {editErrorMsg && (
+                <div className="p-2.5 rounded-xl bg-rose-50 text-rose-600 text-xs font-semibold">
+                  {editErrorMsg}
+                </div>
+              )}
+
+              {/* Tipo de período */}
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-2">
+                  Tipo de Meta
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {(
+                    [
+                      { value: 'monthly', label: 'Mensal', desc: 'Este mês' },
+                      { value: 'custom', label: 'Objetivo', desc: 'Livre / Prazo' },
+                    ] as { value: GoalPeriodType; label: string; desc: string }[]
+                  ).map(opt => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setEditPeriodType(opt.value)}
+                      className={`p-2.5 rounded-2xl border text-center transition-all cursor-pointer ${
+                        editPeriodType === opt.value
+                          ? 'border-[#00D26A] bg-[#E8FBF0]'
+                          : 'border-slate-200 bg-white hover:border-slate-300'
+                      }`}
+                    >
+                      <span
+                        className={`text-xs font-bold block ${
+                          editPeriodType === opt.value ? 'text-[#00B85E]' : 'text-slate-800'
+                        }`}
+                      >
+                        {opt.label}
+                      </span>
+                      <span className="text-[10px] text-slate-400">{opt.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">
+                  Nome do Objetivo
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: Viagem de Férias, Reserva, Carro"
+                  value={editTitle}
+                  onChange={e => setEditTitle(e.target.value)}
+                  className="w-full text-xs px-3.5 py-3 rounded-2xl border border-slate-200 text-slate-900 focus:outline-none focus:border-[#00D26A]"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">
+                  Valor Objetivo (R$)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  placeholder="Ex: 5000.00"
+                  value={editTargetAmount}
+                  onChange={e => setEditTargetAmount(e.target.value)}
+                  className="w-full text-sm font-mono px-3.5 py-3 rounded-2xl border border-slate-200 text-slate-900 focus:outline-none focus:border-[#00D26A]"
+                />
+              </div>
+
+              {/* Prazo só aparece quando tipo é "custom" */}
+              {editPeriodType === 'custom' && (
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    Prazo Estimado (Opcional)
+                  </label>
+                  <input
+                    type="date"
+                    value={editDeadline}
+                    onChange={e => setEditDeadline(e.target.value)}
+                    className="w-full text-xs px-3.5 py-3 rounded-2xl border border-slate-200 text-slate-900 focus:outline-none focus:border-[#00D26A]"
+                  />
+                </div>
+              )}
+
+              {editPeriodType === 'monthly' && (
+                <p className="text-[11px] text-slate-400 bg-slate-50 rounded-xl px-3 py-2">
+                  Período: {getMonthBounds().start} → {getMonthBounds().end}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                disabled={isSavingEdit}
+                className="w-full py-3.5 rounded-full bg-[#00D26A] text-white font-bold text-sm shadow-button-green hover:bg-[#00C853] transition-colors mt-2 cursor-pointer disabled:opacity-60"
+              >
+                {isSavingEdit ? 'Salvando...' : 'Salvar Alterações'}
+              </button>
+            </form>
           </div>
         </div>
       )}

@@ -9,7 +9,7 @@ interface SupportModalProps {
 const FAQS = [
   {
     q: 'Como funciona o lançamento rápido em menos de 3 segundos?',
-    a: 'Basta tocar no botão central "Registrar Pix", digitar o valor no teclado numérico, selecionar a categoria correspondente e pronto! O registro é salvo instantaneamente.',
+    a: 'Basta tocar no botão central "Registrar gasto", digitar o valor no teclado numérico, selecionar a categoria correspondente e pronto! O registro é salvo instantaneamente.',
   },
   {
     q: 'Meus dados bancários estão seguros?',

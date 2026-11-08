@@ -120,6 +120,84 @@ export interface TransactionDisplayInfo {
   subtitle: string;
   isCustomMerchant: boolean;
   installmentBadge?: string; // Ex: "1/6"
+  statusBadge?: { label: string; bg: string; text: string; border: string };
+}
+
+export function formatMonthYear(date: Date): string {
+  return new Intl.DateTimeFormat('pt-BR', {
+    month: 'long',
+    year: 'numeric',
+  }).format(date);
+}
+
+export function getTransactionDueDate(tx: {
+  due_date?: string;
+  created_at: string;
+}): Date {
+  if (tx.due_date) {
+    const d = new Date(`${tx.due_date}T12:00:00`);
+    if (!isNaN(d.getTime())) return d;
+  }
+  return new Date(tx.created_at);
+}
+
+export function isTransactionPaid(tx: {
+  status?: string;
+  paid_at?: string | null;
+  installment_group_id?: string;
+  created_at: string;
+}): boolean {
+  if (tx.status === 'paid') return true;
+  if (tx.status === 'pending' || tx.status === 'overdue') return false;
+  if (tx.paid_at) return true;
+  // Se for legado sem status explícito:
+  if (!tx.installment_group_id) return true; // compras à vista antigas sempre pagas
+  return new Date(tx.created_at) <= new Date(); // parcelas antigas com data passada
+}
+
+export function getTransactionStatus(tx: {
+  status?: string;
+  due_date?: string;
+  paid_at?: string | null;
+  installment_group_id?: string;
+  created_at: string;
+}): 'paid' | 'pending' | 'overdue' {
+  if (tx.status === 'paid' || tx.paid_at) return 'paid';
+  const dueDate = getTransactionDueDate(tx);
+  const now = new Date();
+  // Se ainda não venceu (ou é hoje):
+  if (dueDate >= new Date(now.getFullYear(), now.getMonth(), now.getDate())) {
+    return 'pending';
+  }
+  // Se venceu e não está paga:
+  return 'overdue';
+}
+
+export function getStatusBadge(status: 'paid' | 'pending' | 'overdue') {
+  switch (status) {
+    case 'paid':
+      return {
+        label: 'Paga',
+        bg: 'bg-emerald-50',
+        text: 'text-emerald-700',
+        border: 'border-emerald-200/80',
+      };
+    case 'overdue':
+      return {
+        label: 'Vencida',
+        bg: 'bg-rose-50',
+        text: 'text-rose-700',
+        border: 'border-rose-200/80',
+      };
+    case 'pending':
+    default:
+      return {
+        label: 'Pendente',
+        bg: 'bg-amber-50',
+        text: 'text-amber-700',
+        border: 'border-amber-200/80',
+      };
+  }
 }
 
 export function getTransactionDisplay(tx: {
@@ -128,6 +206,11 @@ export function getTransactionDisplay(tx: {
   payment_method?: string;
   installment_number?: number;
   installment_total?: number;
+  status?: string;
+  due_date?: string;
+  paid_at?: string | null;
+  installment_group_id?: string;
+  created_at?: string;
 }): TransactionDisplayInfo {
   const cat = tx.category || 'Outros';
   const desc = (tx.description || '').trim();
@@ -136,6 +219,18 @@ export function getTransactionDisplay(tx: {
     tx.installment_number && tx.installment_total
       ? `${tx.installment_number}/${tx.installment_total}`
       : undefined;
+
+  let statusBadge: TransactionDisplayInfo['statusBadge'];
+  if (tx.installment_group_id) {
+    const computedStatus = getTransactionStatus({
+      status: tx.status,
+      due_date: tx.due_date,
+      paid_at: tx.paid_at,
+      installment_group_id: tx.installment_group_id,
+      created_at: tx.created_at || new Date().toISOString(),
+    });
+    statusBadge = getStatusBadge(computedStatus);
+  }
 
   // Detecta se a descrição é vazia, igual à categoria ou formato legado tipo "Categoria (METODO)"
   const isGeneric =
@@ -151,6 +246,7 @@ export function getTransactionDisplay(tx: {
       subtitle: `${methodLabel}${installmentSuffix}`,
       isCustomMerchant: false,
       installmentBadge,
+      statusBadge,
     };
   }
 
@@ -159,6 +255,7 @@ export function getTransactionDisplay(tx: {
     subtitle: `${cat} · ${methodLabel}${installmentSuffix}`,
     isCustomMerchant: true,
     installmentBadge,
+    statusBadge,
   };
 }
 

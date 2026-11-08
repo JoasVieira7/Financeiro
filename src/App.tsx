@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Navbar } from './components/layout/Navbar';
 import { BottomTabs, TabType } from './components/layout/BottomTabs';
 import { BalanceOverview } from './components/home/BalanceOverview';
-import { WeeklyGoalCard } from './components/home/WeeklyGoalCard';
+import { MonthlyGoalCard } from './components/home/WeeklyGoalCard';
 import { CategoryBreakdownCard } from './components/home/CategoryBreakdownCard';
 import { RecentTransactions } from './components/home/RecentTransactions';
 import { GoalsView } from './components/goals/GoalsView';
@@ -11,6 +11,7 @@ import { ProfileView } from './components/profile/ProfileView';
 import { ExpressPixModal } from './components/express/ExpressPixModal';
 import { AuthModal } from './components/auth/AuthModal';
 import { OnboardingModal } from './components/onboarding/OnboardingModal';
+import { NotificationsModal } from './components/notifications/NotificationsModal';
 import { useAuth } from './context/AuthContext';
 import { Transaction } from './types';
 
@@ -18,6 +19,7 @@ export const App: React.FC = () => {
   const { user, loading, hasSeenOnboarding } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>('home');
   const [isExpressPixOpen, setIsExpressPixOpen] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(!hasSeenOnboarding);
@@ -55,6 +57,7 @@ export const App: React.FC = () => {
         <Navbar
           onOpenProfile={() => setActiveTab('profile')}
           onOpenAuth={() => setIsAuthOpen(true)}
+          onOpenNotifications={() => setIsNotificationsOpen(true)}
         />
       )}
 
@@ -66,10 +69,10 @@ export const App: React.FC = () => {
             {/* 1. Saldo Disponível & Gastos do Mês */}
             <BalanceOverview onOpenQuickExpense={() => setIsExpressPixOpen(true)} />
 
-            {/* 2. Meta de Economia da Semana */}
-            <WeeklyGoalCard onGoToGoals={() => setActiveTab('goals')} />
+            {/* 2. Meta de Economia do Mês */}
+            <MonthlyGoalCard onGoToGoals={() => setActiveTab('goals')} />
 
-            {/* 3. BIG GREEN BUTTON: Registrar Pix */}
+            {/* 3. BIG GREEN BUTTON: Registrar Gasto */}
             <button
               onClick={() => {
                 setEditingTransaction(null);
@@ -77,7 +80,7 @@ export const App: React.FC = () => {
               }}
               className="w-full py-4 rounded-full bg-[#00D26A] hover:bg-[#00C853] text-white font-extrabold text-base shadow-button-green active:scale-98 transition-all flex items-center justify-center cursor-pointer"
             >
-              Registrar Pix
+              Registrar gasto
             </button>
 
             {/* 4. Resumo de Gastos (Donut Chart) */}
@@ -140,6 +143,13 @@ export const App: React.FC = () => {
       <OnboardingModal
         isOpen={isOnboardingOpen}
         onClose={() => setIsOnboardingOpen(false)}
+      />
+
+      {/* Notifications Modal */}
+      <NotificationsModal
+        isOpen={isNotificationsOpen}
+        onClose={() => setIsNotificationsOpen(false)}
+        onNavigateToTab={tab => setActiveTab(tab as any)}
       />
     </div>
   );

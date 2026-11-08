@@ -40,3 +40,8 @@ Thumbs.db
 # Mobile Native Builds (gerados via Capacitor)
 android/
 ios/
+
+# Planilhas financeiras locais e arquivos de teste
+*.xlsx
+*.xls
+scratch/

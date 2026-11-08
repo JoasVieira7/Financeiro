@@ -18,12 +18,14 @@ interface AuthContextType {
   deleteAccount: () => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   updateProfilePlan: (tier: 'free' | 'premium', status?: SubscriptionStatus) => Promise<void>;
-  updateMonthlyBudget: (budget: number, weeklyTarget: number) => Promise<void>;
+  updateMonthlyBudget: (budget: number, weeklyTarget: number, periodPreference?: 'weekly' | 'monthly') => Promise<void>;
+  setBudgetPeriodPreference: (period: 'weekly' | 'monthly') => Promise<void>;
   updateProfileData: (updates: {
     full_name?: string;
     avatar_url?: string | null;
     monthly_budget?: number;
     weekly_saving_target?: number;
+    budget_period_preference?: 'weekly' | 'monthly';
   }) => Promise<{ error?: string }>;
   notificationsEnabled: boolean;
   setNotificationsEnabled: (enabled: boolean) => void;
@@ -147,8 +149,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       if (data) {
-        setProfile(data);
+        const localPref = (localStorage.getItem('finexpress_budget_period_pref') as 'weekly' | 'monthly') || 'monthly';
+        setProfile({
+          ...data,
+          budget_period_preference: data.budget_period_preference || localPref,
+        });
       } else {
+        const localPref = (localStorage.getItem('finexpress_budget_period_pref') as 'weekly' | 'monthly') || 'monthly';
         const newProfile: UserProfile = {
           id: userId,
           email,
@@ -157,6 +164,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           subscription_status: 'trialing',
           monthly_budget: 3500.00,
           weekly_saving_target: 250.00,
+          budget_period_preference: localPref,
           trial_ends_at: new Date(Date.now() + 7 * 86400000).toISOString(),
           created_at: new Date().toISOString(),
         };
@@ -301,8 +309,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const updateMonthlyBudget = async (budget: number, weeklyTarget: number) => {
-    await updateProfileData({ monthly_budget: budget, weekly_saving_target: weeklyTarget });
+  const updateMonthlyBudget = async (
+    budget: number,
+    weeklyTarget: number,
+    periodPreference?: 'weekly' | 'monthly'
+  ) => {
+    await updateProfileData({
+      monthly_budget: budget,
+      weekly_saving_target: weeklyTarget,
+      ...(periodPreference ? { budget_period_preference: periodPreference } : {}),
+    });
+  };
+
+  const setBudgetPeriodPreference = async (period: 'weekly' | 'monthly') => {
+    localStorage.setItem('finexpress_budget_period_pref', period);
+    if (profile) {
+      await updateProfileData({ budget_period_preference: period });
+    }
   };
 
   const updateProfileData = async (updates: {
@@ -310,8 +333,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     avatar_url?: string | null;
     monthly_budget?: number;
     weekly_saving_target?: number;
+    budget_period_preference?: 'weekly' | 'monthly';
   }): Promise<{ error?: string }> => {
     if (!profile) return { error: 'Perfil não encontrado' };
+
+    if (updates.budget_period_preference) {
+      localStorage.setItem('finexpress_budget_period_pref', updates.budget_period_preference);
+    }
 
     const updated: UserProfile = {
       ...profile,
@@ -319,6 +347,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ...(updates.avatar_url !== undefined ? { avatar_url: updates.avatar_url || undefined } : {}),
       ...(updates.monthly_budget !== undefined ? { monthly_budget: updates.monthly_budget } : {}),
       ...(updates.weekly_saving_target !== undefined ? { weekly_saving_target: updates.weekly_saving_target } : {}),
+      ...(updates.budget_period_preference !== undefined ? { budget_period_preference: updates.budget_period_preference } : {}),
     };
 
     setProfile(updated);
@@ -331,9 +360,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (updates.avatar_url !== undefined) payload.avatar_url = updates.avatar_url;
         if (updates.monthly_budget !== undefined) payload.monthly_budget = updates.monthly_budget;
         if (updates.weekly_saving_target !== undefined) payload.weekly_saving_target = updates.weekly_saving_target;
+        if (updates.budget_period_preference !== undefined) payload.budget_period_preference = updates.budget_period_preference;
 
         const { error } = await supabase.from('profiles').update(payload).eq('id', user.id);
-        if (error) return { error: error.message };
+        if (error) {
+          // Se falhou porque a coluna budget_period_preference não existe ainda no Supabase remoto
+          if (payload.budget_period_preference && (error.code === '42703' || error.message.includes('budget_period_preference'))) {
+            delete payload.budget_period_preference;
+            if (Object.keys(payload).length > 0) {
+              await supabase.from('profiles').update(payload).eq('id', user.id);
+            }
+          } else {
+            return { error: error.message };
+          }
+        }
       } catch (err: any) {
         return { error: err.message || 'Erro ao sincronizar perfil com o banco' };
       }
@@ -386,6 +426,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         signOut,
         updateProfilePlan,
         updateMonthlyBudget,
+        setBudgetPeriodPreference,
         updateProfileData,
         notificationsEnabled,
         setNotificationsEnabled,

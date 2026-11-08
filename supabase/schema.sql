@@ -33,6 +33,8 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   current_period_end timestamptz,
   monthly_budget numeric(12,2) NOT NULL DEFAULT 3500.00,
   weekly_saving_target numeric(12,2) NOT NULL DEFAULT 250.00,
+  budget_period_preference text NOT NULL DEFAULT 'monthly'
+    CHECK (budget_period_preference IN ('weekly', 'monthly')),
   created_at timestamptz DEFAULT timezone('utc'::text, now()) NOT NULL,
   updated_at timestamptz DEFAULT timezone('utc'::text, now()) NOT NULL
 );
@@ -49,6 +51,11 @@ BEGIN
     SELECT 1 FROM pg_constraint WHERE conname = 'profiles_weekly_saving_target_check'
   ) THEN
     ALTER TABLE public.profiles ADD CONSTRAINT profiles_weekly_saving_target_check CHECK (weekly_saving_target >= 0);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'profiles_budget_period_preference_check'
+  ) THEN
+    ALTER TABLE public.profiles ADD CONSTRAINT profiles_budget_period_preference_check CHECK (budget_period_preference IN ('weekly', 'monthly'));
   END IF;
 END $$;
 
@@ -72,6 +79,10 @@ CREATE TABLE IF NOT EXISTS public.transactions (
   installment_number integer CHECK (installment_number IS NULL OR installment_number > 0),
   installment_total integer CHECK (installment_total IS NULL OR installment_total >= installment_number),
   installment_purchase_amount numeric(12,2) CHECK (installment_purchase_amount IS NULL OR installment_purchase_amount > 0),
+  purchase_date timestamptz,
+  due_date date,
+  paid_at timestamptz,
+  status text DEFAULT 'paid' CHECK (status IN ('paid', 'pending', 'overdue')),
   created_at timestamptz DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
@@ -86,6 +97,9 @@ CREATE TABLE IF NOT EXISTS public.savings_goals (
   color text DEFAULT 'emerald',
   deadline date,
   is_completed boolean DEFAULT false NOT NULL,
+  period_type text DEFAULT 'custom' CHECK (period_type IN ('weekly', 'monthly', 'custom')),
+  start_date date,
+  end_date date,
   created_at timestamptz DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
@@ -118,6 +132,28 @@ CREATE TABLE IF NOT EXISTS public.goal_contributions (
   created_at timestamptz DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
+-- 1.6 Notificações Reais e Persistentes
+CREATE TABLE IF NOT EXISTS public.notifications (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  title text NOT NULL,
+  message text NOT NULL,
+  type text NOT NULL CHECK (type IN (
+    'goal_reached',
+    'goal_warning',
+    'expense_due',
+    'expense_overdue',
+    'financial_alert',
+    'system'
+  )),
+  is_read boolean NOT NULL DEFAULT false,
+  read_at timestamptz,
+  link text,
+  metadata jsonb DEFAULT '{}'::jsonb,
+  dedup_key text,
+  created_at timestamptz DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
 -- ==============================================================================
 -- 2. ROW LEVEL SECURITY (RLS) — ATIVAÇÃO E POLÍTICAS IDEMPOTENTES
 -- ==============================================================================
@@ -127,6 +163,7 @@ ALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.savings_goals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.recurring_expenses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.goal_contributions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 
 -- 2.1 Políticas: profiles
 -- SELECT: apenas o próprio usuário
@@ -178,20 +215,24 @@ CREATE POLICY "Usuários Premium podem inserir despesas recorrentes"
     )
   );
 
-CREATE POLICY "Usuários Premium podem atualizar suas despesas recorrentes"
+DROP POLICY IF EXISTS "Usuários Premium podem atualizar suas despesas recorrentes" ON public.recurring_expenses;
+DROP POLICY IF EXISTS "Usuários podem atualizar suas despesas recorrentes" ON public.recurring_expenses;
+DROP POLICY IF EXISTS "Usuários podem atualizar despesas recorrentes com enforcement" ON public.recurring_expenses;
+
+CREATE POLICY "Usuários podem atualizar despesas recorrentes com enforcement"
   ON public.recurring_expenses FOR UPDATE
   USING (
     auth.uid() = user_id
-    AND EXISTS (
-      SELECT 1 FROM public.profiles p
-      WHERE p.id = auth.uid() AND p.plan_tier = 'premium'
+    AND (
+      EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.plan_tier = 'premium')
+      OR (is_active = true)
     )
   )
   WITH CHECK (
     auth.uid() = user_id
-    AND EXISTS (
-      SELECT 1 FROM public.profiles p
-      WHERE p.id = auth.uid() AND p.plan_tier = 'premium'
+    AND (
+      EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.plan_tier = 'premium')
+      OR (is_active = false)
     )
   );
 
@@ -218,6 +259,28 @@ CREATE POLICY "Usuários podem inserir contribuições em suas próprias metas"
     )
   );
 
+-- 2.6 Políticas: notifications
+DROP POLICY IF EXISTS "Usuários podem ver suas próprias notificações" ON public.notifications;
+CREATE POLICY "Usuários podem ver suas próprias notificações"
+  ON public.notifications FOR SELECT
+  USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Usuários podem inserir notificações para si próprios" ON public.notifications;
+CREATE POLICY "Usuários podem inserir notificações para si próprios"
+  ON public.notifications FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Usuários podem atualizar suas próprias notificações" ON public.notifications;
+CREATE POLICY "Usuários podem atualizar suas próprias notificações"
+  ON public.notifications FOR UPDATE
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Usuários podem excluir suas próprias notificações" ON public.notifications;
+CREATE POLICY "Usuários podem excluir suas próprias notificações"
+  ON public.notifications FOR DELETE
+  USING (auth.uid() = user_id);
+
 -- ==============================================================================
 -- 3. PERMISSÕES DE TABELAS E COLUNAS (LEAST PRIVILEGE)
 -- ==============================================================================
@@ -237,7 +300,7 @@ GRANT UPDATE (full_name, avatar_url, monthly_budget, weekly_saving_target) ON pu
 REVOKE ALL ON public.savings_goals FROM anon;
 GRANT SELECT, INSERT, DELETE ON public.savings_goals TO authenticated;
 REVOKE UPDATE ON public.savings_goals FROM authenticated;
-GRANT UPDATE (title, target_amount, icon, color, deadline, is_completed) ON public.savings_goals TO authenticated;
+GRANT UPDATE (title, target_amount, icon, color, deadline, is_completed, period_type, start_date, end_date) ON public.savings_goals TO authenticated;
 
 -- 3.3 goal_contributions:
 -- anon: bloqueado 100%
@@ -253,6 +316,10 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.transactions TO authenticated;
 -- 3.5 recurring_expenses:
 REVOKE ALL ON public.recurring_expenses FROM anon;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.recurring_expenses TO authenticated;
+
+-- 3.6 notifications:
+REVOKE ALL ON public.notifications FROM anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.notifications TO authenticated;
 
 -- ==============================================================================
 -- 4. ÍNDICES DE PERFORMANCE
@@ -273,6 +340,22 @@ CREATE INDEX IF NOT EXISTS idx_goal_contributions_goal
   ON public.goal_contributions (goal_id, user_id);
 CREATE INDEX IF NOT EXISTS idx_goal_contributions_user
   ON public.goal_contributions (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_savings_goals_active_user
+  ON public.savings_goals (user_id)
+  WHERE is_completed = false;
+CREATE INDEX IF NOT EXISTS idx_transactions_user_due_date 
+  ON public.transactions (user_id, due_date ASC);
+CREATE INDEX IF NOT EXISTS idx_transactions_user_status 
+  ON public.transactions (user_id, status);
+CREATE INDEX IF NOT EXISTS idx_transactions_user_purchase_date 
+  ON public.transactions (user_id, purchase_date DESC);
+CREATE INDEX IF NOT EXISTS idx_savings_goals_user_period
+  ON public.savings_goals (user_id, period_type, is_completed);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_user_dedup
+  ON public.notifications (user_id, dedup_key)
+  WHERE dedup_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_notifications_user_unread
+  ON public.notifications (user_id, is_read, created_at DESC);
 
 -- ==============================================================================
 -- 5. FUNÇÕES E TRIGGERS DE SEGURANÇA
@@ -422,6 +505,10 @@ DECLARE
   v_goal_user_id uuid;
   v_new_balance numeric(12,2);
   v_jwt_role text;
+  v_goal_title text;
+  v_goal_period_type text;
+  -- Sufixo de período para dedup_key: garante uma notificação por período
+  v_period_suffix text;
 BEGIN
   -- Obtém role do usuário chamador
   BEGIN
@@ -449,8 +536,8 @@ BEGIN
   END IF;
 
   -- Trava a linha da meta com SELECT FOR UPDATE (garantia total contra race conditions)
-  SELECT current_amount, target_amount, is_completed, user_id
-    INTO STRICT v_current, v_target, v_is_completed, v_goal_user_id
+  SELECT current_amount, target_amount, is_completed, title, user_id, COALESCE(period_type, 'custom')
+    INTO STRICT v_current, v_target, v_is_completed, v_goal_title, v_goal_user_id, v_goal_period_type
     FROM public.savings_goals
     WHERE id = NEW.goal_id
     FOR UPDATE;
@@ -483,6 +570,16 @@ BEGIN
       USING ERRCODE = 'invalid_parameter_value';
   END IF;
 
+  -- Sufixo de período para dedup_key:
+  -- weekly  → ISO semana (YYYY-WNN)  — renotifica a cada nova semana
+  -- monthly → mês (YYYY-MM)          — renotifica a cada novo mês
+  -- custom  → 'once'                 — apenas uma notificação por meta
+  v_period_suffix := CASE v_goal_period_type
+    WHEN 'weekly'  THEN to_char(now() AT TIME ZONE 'America/Sao_Paulo', 'IYYY"-W"IW')
+    WHEN 'monthly' THEN to_char(now() AT TIME ZONE 'America/Sao_Paulo', 'YYYY"-"MM')
+    ELSE 'once'
+  END;
+
   -- Atualização atômica do saldo da meta e do status de conclusão caso tenha atingido o alvo
   UPDATE public.savings_goals
     SET
@@ -492,6 +589,42 @@ BEGIN
         ELSE is_completed
       END
     WHERE id = NEW.goal_id;
+
+  -- Geração de notificação automática e idempotente quando a meta é concluída
+  IF v_new_balance >= v_target THEN
+    INSERT INTO public.notifications (
+      user_id,
+      title,
+      message,
+      type,
+      link,
+      dedup_key
+    ) VALUES (
+      NEW.user_id,
+      'Meta Atingida! 🎉',
+      'Parabéns! Você atingiu 100% da meta "' || v_goal_title || '" acumulando R$ ' || to_char(v_new_balance, 'FM999G999G990D00') || '.',
+      'goal_reached',
+      '/goals',
+      'goal_reached_' || NEW.goal_id::text || '_' || v_period_suffix
+    ) ON CONFLICT (user_id, dedup_key) DO NOTHING;
+  -- Geração de notificação de proximidade (>= 80%)
+  ELSIF v_new_balance >= (v_target * 0.8) AND v_current < (v_target * 0.8) THEN
+    INSERT INTO public.notifications (
+      user_id,
+      title,
+      message,
+      type,
+      link,
+      dedup_key
+    ) VALUES (
+      NEW.user_id,
+      'Meta Próxima do Objetivo! 🎯',
+      'Excelente progresso! Sua meta "' || v_goal_title || '" já ultrapassou 80% do valor pretendido.',
+      'goal_warning',
+      '/goals',
+      'goal_near_' || NEW.goal_id::text || '_80_' || v_period_suffix
+    ) ON CONFLICT (user_id, dedup_key) DO NOTHING;
+  END IF;
 
   RETURN NEW;
 END;
@@ -713,7 +846,10 @@ BEGIN
     IF TG_OP = 'INSERT' THEN
       NEW.user_id := auth.uid();
     ELSIF TG_OP = 'UPDATE' THEN
+      -- Protege integridade de campos imutáveis
+      NEW.id := OLD.id;
       NEW.user_id := OLD.user_id;
+      NEW.created_at := OLD.created_at;
     END IF;
   END IF;
 
@@ -743,6 +879,16 @@ BEGIN
       RAISE EXCEPTION 'Não é permitido reativar despesas recorrentes no Plano Gratuito. Faça upgrade para o Plano Premium.'
         USING ERRCODE = 'check_violation';
     END IF;
+
+    -- Proíbe alteração de qualquer propriedade protegida (valores, categorias, descrições, datas)
+    IF (NEW.description IS DISTINCT FROM OLD.description)
+       OR (NEW.amount IS DISTINCT FROM OLD.amount)
+       OR (NEW.category IS DISTINCT FROM OLD.category)
+       OR (NEW.payment_method IS DISTINCT FROM OLD.payment_method)
+       OR (NEW.due_day IS DISTINCT FROM OLD.due_day) THEN
+      RAISE EXCEPTION 'Usuários do Plano Gratuito só podem desativar despesas recorrentes existentes. A alteração de valores, descrições ou categorias requer o Plano Premium.'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
   END IF;
 
   RETURN NEW;
@@ -753,6 +899,34 @@ DROP TRIGGER IF EXISTS check_recurring_expense_premium_trigger ON public.recurri
 CREATE TRIGGER check_recurring_expense_premium_trigger
   BEFORE INSERT OR UPDATE ON public.recurring_expenses
   FOR EACH ROW EXECUTE FUNCTION public.check_recurring_expense_premium();
+
+-- RPC controlada para desativação atômica de despesa recorrente
+CREATE OR REPLACE FUNCTION public.deactivate_recurring_expense(p_expense_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_user_id uuid;
+BEGIN
+  v_user_id := auth.uid();
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'Operação negada: usuário não autenticado.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  UPDATE public.recurring_expenses
+  SET is_active = false
+  WHERE id = p_expense_id
+    AND user_id = v_user_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Despesa recorrente não encontrada ou não pertence ao usuário.'
+      USING ERRCODE = 'no_data_found';
+  END IF;
+END;
+$$;
 
 -- ------------------------------------------------------------------------------
 -- 5.9 RPC Administrativa para Alteração de Plano (Webhooks / Service Role)
@@ -843,9 +1017,148 @@ REVOKE ALL ON FUNCTION public.handle_new_user() FROM PUBLIC, anon, authenticated
 REVOKE ALL ON FUNCTION public.check_savings_goal_limit() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.check_recurring_expense_premium() FROM PUBLIC, anon, authenticated;
 
--- Apenas a RPC de exclusão pode ser executada por usuários autenticados:
+-- Apenas as RPCs controladas podem ser executadas por usuários autenticados:
 REVOKE ALL ON FUNCTION public.delete_user_account() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.delete_user_account() TO authenticated;
+
+REVOKE ALL ON FUNCTION public.deactivate_recurring_expense(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.deactivate_recurring_expense(uuid) TO authenticated;
+
+-- RPCs de Notificações
+CREATE OR REPLACE FUNCTION public.mark_notification_read(p_notification_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Operação negada: usuário não autenticado.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  UPDATE public.notifications
+  SET
+    is_read = true,
+    read_at = timezone('utc'::text, now())
+  WHERE id = p_notification_id
+    AND user_id = auth.uid()
+    AND is_read = false;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.mark_all_notifications_read()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Operação negada: usuário não autenticado.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  UPDATE public.notifications
+  SET
+    is_read = true,
+    read_at = timezone('utc'::text, now())
+  WHERE user_id = auth.uid()
+    AND is_read = false;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.check_financial_alerts()
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_user_id uuid;
+  v_count integer := 0;
+  r record;
+BEGIN
+  v_user_id := auth.uid();
+  IF v_user_id IS NULL THEN
+    RETURN 0;
+  END IF;
+
+  -- 1. Alertas de despesas que vencem hoje ou nos próximos 2 dias
+  FOR r IN
+    SELECT id, description, amount, due_date
+    FROM public.transactions
+    WHERE user_id = v_user_id
+      AND type = 'expense'
+      AND status = 'pending'
+      AND due_date IS NOT NULL
+      AND due_date >= current_date
+      AND due_date <= (current_date + interval '2 days')
+  LOOP
+    INSERT INTO public.notifications (
+      user_id,
+      title,
+      message,
+      type,
+      link,
+      dedup_key
+    ) VALUES (
+      v_user_id,
+      'Despesa Próxima do Vencimento ⏰',
+      'A despesa "' || r.description || '" no valor de R$ ' || to_char(r.amount, 'FM999G999G990D00') || ' vence em ' || to_char(r.due_date, 'DD/MM/YYYY') || '.',
+      'expense_due',
+      '/commitments',
+      'due_' || r.id::text || '_' || r.due_date::text
+    ) ON CONFLICT (user_id, dedup_key) DO NOTHING;
+
+    IF FOUND THEN
+      v_count := v_count + 1;
+    END IF;
+  END LOOP;
+
+  -- 2. Alertas de despesas em atraso (vencidas e não pagas)
+  FOR r IN
+    SELECT id, description, amount, due_date
+    FROM public.transactions
+    WHERE user_id = v_user_id
+      AND type = 'expense'
+      AND status = 'pending'
+      AND due_date IS NOT NULL
+      AND due_date < current_date
+  LOOP
+    INSERT INTO public.notifications (
+      user_id,
+      title,
+      message,
+      type,
+      link,
+      dedup_key
+    ) VALUES (
+      v_user_id,
+      'Atenção: Despesa Vencida ⚠️',
+      'A despesa "' || r.description || '" (R$ ' || to_char(r.amount, 'FM999G999G990D00') || ') venceu em ' || to_char(r.due_date, 'DD/MM/YYYY') || ' e ainda não foi quitada.',
+      'expense_overdue',
+      '/commitments',
+      'overdue_' || r.id::text || '_' || r.due_date::text
+    ) ON CONFLICT (user_id, dedup_key) DO NOTHING;
+
+    IF FOUND THEN
+      v_count := v_count + 1;
+    END IF;
+  END LOOP;
+
+  RETURN v_count;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.mark_notification_read(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.mark_notification_read(uuid) TO authenticated;
+
+REVOKE ALL ON FUNCTION public.mark_all_notifications_read() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.mark_all_notifications_read() TO authenticated;
+
+REVOKE ALL ON FUNCTION public.check_financial_alerts() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.check_financial_alerts() TO authenticated;
 
 -- Apenas service_role pode executar a RPC administrativa de alteração de plano:
 REVOKE ALL ON FUNCTION public.admin_set_user_plan(uuid, text, text, integer) FROM PUBLIC, anon, authenticated;

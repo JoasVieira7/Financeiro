@@ -19,6 +19,8 @@ export type PaymentMethod =
 
 export type TransactionType = 'expense' | 'income';
 
+export type TransactionStatus = 'paid' | 'pending' | 'overdue';
+
 export interface Transaction {
   id: string;
   user_id: string;
@@ -30,6 +32,10 @@ export interface Transaction {
   is_recurring?: boolean;
   notes?: string;
   created_at: string;
+  purchase_date?: string;
+  due_date?: string; // YYYY-MM-DD
+  paid_at?: string | null;
+  status?: TransactionStatus;
   installment_group_id?: string;
   installment_number?: number;
   installment_total?: number;
@@ -66,6 +72,7 @@ export interface UserProfile {
   current_period_end?: string;
   monthly_budget: number;
   weekly_saving_target: number;
+  budget_period_preference?: 'weekly' | 'monthly';
   category_limits?: Record<string, number>;
   created_at: string;
 }
@@ -80,6 +87,8 @@ export interface GoalContribution {
   created_at: string;
 }
 
+export type GoalPeriodType = 'weekly' | 'monthly' | 'custom';
+
 export interface SavingsGoal {
   id: string;
   user_id: string;
@@ -91,6 +100,31 @@ export interface SavingsGoal {
   icon?: string;
   color?: string;
   is_completed?: boolean;
+  period_type?: GoalPeriodType;
+  start_date?: string;
+  end_date?: string;
+  created_at: string;
+}
+
+export type NotificationType =
+  | 'goal_reached'
+  | 'goal_warning'
+  | 'expense_due'
+  | 'expense_overdue'
+  | 'financial_alert'
+  | 'system';
+
+export interface AppNotification {
+  id: string;
+  user_id: string;
+  title: string;
+  message: string;
+  type: NotificationType;
+  is_read: boolean;
+  read_at?: string | null;
+  link?: string;
+  metadata?: Record<string, any>;
+  dedup_key?: string;
   created_at: string;
 }
 
@@ -107,12 +141,28 @@ export interface CategorySummary {
 }
 
 export interface DashboardStats {
+  budgetPeriod: 'weekly' | 'monthly';
   monthlyIncome: number;
-  monthlyExpense: number;
+  monthlyExpense: number; // total de despesas efetivamente pagas no mês
+  monthlyPendingExpense: number; // despesas previstas / pendentes no mês corrente
+  totalCommittedMonth: number; // soma de pagas + pendentes no mês
   remainingBudget: number;
   budgetUsedPercentage: number;
+  weeklyBudget: number;
+  weeklyExpense: number;
+  weeklyRemainingBudget: number;
+  weeklyBudgetUsedPercentage: number;
+  effectiveBudget: number;
+  effectiveRemainingBudget: number;
+  effectiveCommitted: number;
+  effectiveBudgetUsedPercentage: number;
+  effectiveSavedAmount: number;
+  effectiveSavingTarget: number;
+  effectiveGoalPercentage: number;
   weeklySavedAmount: number;
   weeklyGoalPercentage: number;
+  monthlySavedAmount: number;
+  monthlyGoalPercentage: number;
   todayExpense: number;
   todayTransactionsCount: number;
   totalTransactionsCount: number;
@@ -123,6 +173,44 @@ export interface DashboardStats {
   expenseComparisonPercentage: number;
   totalSavedInGoals: number;
   categoryBreakdown: CategorySummary[];
+}
+
+export interface InstallmentGroupSummary {
+  groupId: string;
+  description: string;
+  category: TransactionCategory;
+  paymentMethod: PaymentMethod;
+  totalAmount: number;
+  installmentAmount: number;
+  totalInstallments: number;
+  paidInstallments: number;
+  pendingInstallments: number;
+  purchaseDate: string;
+  nextDueDate?: string;
+  status: 'fully_paid' | 'in_progress';
+  installments: Transaction[];
+}
+
+export interface FutureCommitmentMonth {
+  monthKey: string; // "YYYY-MM"
+  monthLabel: string; // "Novembro 2026"
+  year: number;
+  monthIndex: number; // 0-11
+  totalCommitted: number; // total previsto para o mês
+  totalPending: number; // parcelas ainda pendentes
+  totalPaid: number; // parcelas já pagas do mês
+  installmentsCount: number;
+  transactions: Transaction[];
+}
+
+export interface FutureCommitmentsSummary {
+  totalCommittedInInstallments: number; // total valor de compras com parcelas pendentes
+  totalPendingPayment: number; // total que falta pagar (somente parcelas pendentes)
+  totalPaidPayment: number; // total já pago em parcelas
+  remainingInstallmentsCount: number; // total de parcelas pendentes
+  activePurchasesCount: number; // número de compras parceladas em andamento
+  monthlyForecast: FutureCommitmentMonth[]; // próximos 12 meses
+  activeGroups: InstallmentGroupSummary[]; // compras ativas detalhadas
 }
 
 export interface SaaSPlanFeatureLimits {

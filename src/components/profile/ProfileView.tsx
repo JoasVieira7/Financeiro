@@ -1,12 +1,24 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useFinance } from '../../context/FinanceContext';
 import { formatCurrency } from '../../lib/formatters';
+import {
+  weeklyToMonthly,
+  monthlyToWeekly,
+  roundToCents,
+  getPeriodEquivalenceNote,
+} from '../../lib/budgetCalculations';
 import { TermsOfServiceModal } from '../legal/TermsOfServiceModal';
 import { PrivacyPolicyModal } from '../legal/PrivacyPolicyModal';
 import { SupportModal } from '../legal/SupportModal';
 import { PlanComparisonModal } from './PaymentModal';
 import {
-  Settings,
+  isWebPushSupported,
+  getNotificationPermission,
+  requestPushPermission,
+  type PushPermissionStatus,
+} from '../../lib/pushNotifications';
+import {
   Check,
   Award,
   User,
@@ -20,11 +32,11 @@ import {
   AlertTriangle,
   Sparkles,
   Camera,
-  Trash2,
   DollarSign,
   Target,
   Crown,
   Edit3,
+  BellRing,
 } from 'lucide-react';
 
 interface ProfileViewProps {
@@ -40,24 +52,39 @@ export const ProfileView: React.FC<ProfileViewProps> = () => {
     deleteAccount,
     replayOnboarding,
     updateProfileData,
+    setBudgetPeriodPreference,
     notificationsEnabled,
     setNotificationsEnabled,
   } = useAuth();
 
+  const { stats } = useFinance();
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Modais de navegação e preferências
-  const [isPreferencesOpen, setIsPreferencesOpen] = useState(false);
+  // Período principal preferido do usuário (semanal ou mensal)
+  const activePeriod = profile?.budget_period_preference || 'monthly';
+
+  // Push Notification permission state
+  const [pushStatus, setPushStatus] = useState<PushPermissionStatus>(() =>
+    getNotificationPermission()
+  );
+  const [isRequestingPush, setIsRequestingPush] = useState(false);
+
+  useEffect(() => {
+    setPushStatus(getNotificationPermission());
+  }, []);
+
+  // Modais de navegação
   const [isTermsOpen, setIsTermsOpen] = useState(false);
   const [isPrivacyOpen, setIsPrivacyOpen] = useState(false);
   const [isSupportOpen, setIsSupportOpen] = useState(false);
   const [isPremiumInfoOpen, setIsPremiumInfoOpen] = useState(false);
 
-  // Modal Editar Perfil & Metas Financeiras
+  // Modal Editar Perfil & Metas Financeiras (Exclusivamente Mensal)
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const [editedName, setEditedName] = useState('');
   const [editedBudget, setEditedBudget] = useState('');
-  const [editedWeeklyTarget, setEditedWeeklyTarget] = useState('');
+  const [editedMonthlyTarget, setEditedMonthlyTarget] = useState('');
   const [profileFeedback, setProfileFeedback] = useState<string | null>(null);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
 
@@ -136,13 +163,17 @@ export const ProfileView: React.FC<ProfileViewProps> = () => {
     await updateProfileData({ avatar_url: null });
   };
 
-  // Abrir Modal de Edição de Perfil e Metas
+  // Abrir Modal de Edição de Perfil e Metas (Mensal)
   const handleOpenEditProfile = () => {
     setEditedName(profile?.full_name || '');
     setEditedBudget(String(monthlyBudget));
-    setEditedWeeklyTarget(String(weeklyTarget));
+    setEditedMonthlyTarget(weeklyToMonthly(weeklyTarget).toString());
     setProfileFeedback(null);
     setIsEditProfileOpen(true);
+  };
+
+  const handleMonthlyTargetChange = (val: string) => {
+    setEditedMonthlyTarget(val);
   };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
@@ -153,25 +184,29 @@ export const ProfileView: React.FC<ProfileViewProps> = () => {
       return;
     }
 
-    const budgetNum = parseFloat(editedBudget.replace(',', '.'));
-    if (isNaN(budgetNum) || budgetNum < 0) {
-      setProfileFeedback('Informe um orçamento mensal válido.');
+    const rawBudget = parseFloat(editedBudget.replace(',', '.'));
+    if (isNaN(rawBudget) || rawBudget <= 0) {
+      setProfileFeedback('Informe um valor de orçamento válido.');
       return;
     }
 
-    const weeklyNum = parseFloat(editedWeeklyTarget.replace(',', '.'));
-    if (isNaN(weeklyNum) || weeklyNum < 0) {
-      setProfileFeedback('Informe uma meta semanal válida.');
+    const finalMonthlyBudget = roundToCents(rawBudget);
+
+    const m = parseFloat(editedMonthlyTarget.replace(',', '.'));
+    if (isNaN(m) || m < 0) {
+      setProfileFeedback('Informe uma meta mensal válida.');
       return;
     }
+    const finalWeeklyTarget = monthlyToWeekly(m);
 
     setIsSavingProfile(true);
     setProfileFeedback(null);
 
     const res = await updateProfileData({
       full_name: trimmedName,
-      monthly_budget: budgetNum,
-      weekly_saving_target: weeklyNum,
+      monthly_budget: finalMonthlyBudget,
+      weekly_saving_target: finalWeeklyTarget,
+      budget_period_preference: 'monthly',
     });
 
     setIsSavingProfile(false);
@@ -217,8 +252,17 @@ export const ProfileView: React.FC<ProfileViewProps> = () => {
   };
 
   const handleReplayTutorial = () => {
-    setIsPreferencesOpen(false);
     replayOnboarding();
+  };
+
+  const handleRequestPushPermission = async () => {
+    setIsRequestingPush(true);
+    const result = await requestPushPermission();
+    setPushStatus(result);
+    setIsRequestingPush(false);
+    if (result === 'granted') {
+      setNotificationsEnabled(true);
+    }
   };
 
   return (
@@ -233,19 +277,14 @@ export const ProfileView: React.FC<ProfileViewProps> = () => {
         aria-hidden="true"
       />
 
-      {/* Top Header: "Meu Perfil" on left, Gear on right */}
-      <div className="flex items-center justify-between px-1">
+      {/* Top Header: "Meu Perfil" */}
+      <div className="px-1 pt-1">
         <h2 className="text-[22px] font-extrabold text-slate-900 tracking-tight">
           Meu Perfil
         </h2>
-        <button
-          onClick={() => setIsPreferencesOpen(true)}
-          className="w-10 h-10 rounded-full flex items-center justify-center text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
-          title="Preferências"
-          aria-label="Abrir preferências"
-        >
-          <Settings className="w-5 h-5 fill-slate-500 stroke-slate-600" />
-        </button>
+        <p className="text-xs text-slate-400 font-medium mt-0.5">
+          Configurações da conta, segurança e preferências
+        </p>
       </div>
 
       {/* ========================================================================= */}
@@ -418,7 +457,8 @@ export const ProfileView: React.FC<ProfileViewProps> = () => {
           </button>
         </div>
 
-        <div className="bg-white rounded-[26px] p-4 border border-slate-100 shadow-[0_6px_20px_rgba(0,0,0,0.03)] grid grid-cols-2 gap-3">
+        <div className="bg-white rounded-[26px] p-4 border border-slate-100 shadow-[0_6px_20px_rgba(0,0,0,0.03)] space-y-3">
+          {/* Orçamento Mensal */}
           <div className="p-3 rounded-2xl bg-slate-50 border border-slate-100/80 space-y-1">
             <span className="text-[11px] font-bold text-slate-500 flex items-center gap-1">
               <DollarSign className="w-3.5 h-3.5 text-[#00D26A]" />
@@ -427,15 +467,46 @@ export const ProfileView: React.FC<ProfileViewProps> = () => {
             <div className="text-sm font-extrabold text-slate-900 font-mono">
               {formatCurrency(monthlyBudget)}
             </div>
+            <span className="text-[10px] text-slate-400 block font-medium">
+              Limite total de gastos planejados para o mês
+            </span>
           </div>
 
-          <div className="p-3 rounded-2xl bg-slate-50 border border-slate-100/80 space-y-1">
-            <span className="text-[11px] font-bold text-slate-500 flex items-center gap-1">
-              <Target className="w-3.5 h-3.5 text-[#00D26A]" />
-              Meta Semanal
-            </span>
+          {/* Meta de Economia Mensal */}
+          <div className="p-3 rounded-2xl bg-slate-50 border border-slate-100/80 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold text-slate-500 flex items-center gap-1">
+                <Target className="w-3.5 h-3.5 text-[#00D26A]" />
+                Meta de Economia Mensal
+              </span>
+              <span className="text-[11px] font-bold text-[#00D26A] font-mono">
+                {stats.monthlyGoalPercentage}%
+              </span>
+            </div>
+
+            {/* Valor alvo da meta */}
             <div className="text-sm font-extrabold text-slate-900 font-mono">
-              {formatCurrency(weeklyTarget)}
+              {formatCurrency(weeklyToMonthly(weeklyTarget))}
+            </div>
+
+            {/* Progresso real do período mensal */}
+            <div className="space-y-1">
+              <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-[#00D26A] rounded-full transition-all duration-500"
+                  style={{
+                    width: `${stats.monthlyGoalPercentage}%`,
+                  }}
+                />
+              </div>
+              <div className="flex items-center justify-between text-[10px] font-medium text-slate-400">
+                <span>
+                  Economizado: {formatCurrency(stats.monthlySavedAmount)}
+                </span>
+                <span className="font-bold text-[#00D26A]">
+                  {stats.monthlyGoalPercentage}%
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -450,7 +521,7 @@ export const ProfileView: React.FC<ProfileViewProps> = () => {
         </h4>
 
         <div className="space-y-2">
-          {/* Notificações com Toggle Real */}
+          {/* Notificações no App com Toggle */}
           <div className="bg-white rounded-[22px] px-4 py-3.5 border border-slate-100 shadow-[0_6px_20px_rgba(0,0,0,0.03)] flex items-center justify-between">
             <div className="flex items-center gap-3.5 min-w-0 pr-2">
               <div
@@ -468,10 +539,10 @@ export const ProfileView: React.FC<ProfileViewProps> = () => {
               </div>
               <div className="min-w-0">
                 <span className="text-sm font-bold text-slate-900 block truncate">
-                  Notificações
+                  Notificações no app
                 </span>
                 <span className="text-xs text-slate-400 block truncate leading-tight">
-                  Receba lembretes e avisos importantes
+                  Alertas de metas, despesas e vencimentos
                 </span>
               </div>
             </div>
@@ -488,6 +559,56 @@ export const ProfileView: React.FC<ProfileViewProps> = () => {
               {notificationsEnabled ? 'Ativadas' : 'Desativadas'}
             </button>
           </div>
+
+          {/* Notificações Push do Navegador */}
+          {isWebPushSupported() && (
+            <div className="bg-white rounded-[22px] px-4 py-3.5 border border-slate-100 shadow-[0_6px_20px_rgba(0,0,0,0.03)] flex items-center justify-between">
+              <div className="flex items-center gap-3.5 min-w-0 pr-2">
+                <div
+                  className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
+                    pushStatus === 'granted'
+                      ? 'bg-[#E8FBF0] text-[#00D26A]'
+                      : pushStatus === 'denied'
+                      ? 'bg-rose-50 text-rose-400'
+                      : 'bg-slate-100 text-slate-400'
+                  }`}
+                >
+                  <BellRing className="w-5 h-5 stroke-[2.2]" />
+                </div>
+                <div className="min-w-0">
+                  <span className="text-sm font-bold text-slate-900 block truncate">
+                    Notificações push
+                  </span>
+                  <span className="text-xs text-slate-400 block leading-tight">
+                    {pushStatus === 'granted'
+                      ? 'Ativas no seu navegador'
+                      : pushStatus === 'denied'
+                      ? 'Bloqueadas — habilite nas configurações do navegador'
+                      : 'Receba alertas mesmo com o app minimizado'}
+                  </span>
+                </div>
+              </div>
+
+              {pushStatus === 'granted' ? (
+                <span className="px-3 py-1.5 rounded-full text-xs font-extrabold bg-[#E8FBF0] text-[#00D26A] border border-[#A7F3D0] whitespace-nowrap">
+                  Ativas
+                </span>
+              ) : pushStatus === 'denied' ? (
+                <span className="px-3 py-1.5 rounded-full text-xs font-bold bg-rose-50 text-rose-500 border border-rose-200 whitespace-nowrap">
+                  Bloqueadas
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleRequestPushPermission}
+                  disabled={isRequestingPush}
+                  className="px-3 py-1.5 rounded-full text-xs font-extrabold bg-slate-900 text-white hover:bg-slate-800 transition-all cursor-pointer whitespace-nowrap disabled:opacity-60"
+                >
+                  {isRequestingPush ? 'Aguarde...' : 'Ativar'}
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Rever Tutorial */}
           <div
@@ -622,87 +743,6 @@ export const ProfileView: React.FC<ProfileViewProps> = () => {
       </div>
 
       {/* ========================================================================= */}
-      {/* MODAL: PREFERÊNCIAS (Acionado pela Engrenagem no topo)                    */}
-      {/* ========================================================================= */}
-      {isPreferencesOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in"
-          onClick={() => setIsPreferencesOpen(false)}
-        >
-          <div
-            className="w-full max-w-[380px] bg-white rounded-[32px] p-6 shadow-[0_16px_40px_rgba(0,0,0,0.08)] border border-slate-100 animate-scale-in"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
-              <h3 className="text-[18px] font-extrabold text-slate-900 tracking-tight">
-                Preferências
-              </h3>
-              <button
-                onClick={() => setIsPreferencesOpen(false)}
-                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center transition-colors cursor-pointer"
-                title="Fechar"
-                aria-label="Fechar preferências"
-              >
-                <X className="w-4 h-4 stroke-[2.5]" />
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              {/* Notificações */}
-              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between">
-                <div className="min-w-0 pr-2">
-                  <span className="text-xs font-bold text-slate-900 block truncate">
-                    Notificações
-                  </span>
-                  <span className="text-[11px] text-slate-500 block leading-tight">
-                    Lembretes e avisos do app
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setNotificationsEnabled(!notificationsEnabled)}
-                  className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                    notificationsEnabled
-                      ? 'bg-[#E8FBF0] text-[#00D26A] border border-[#A7F3D0]'
-                      : 'bg-white text-slate-600 border border-slate-200'
-                  }`}
-                >
-                  {notificationsEnabled ? 'Ativadas' : 'Desativadas'}
-                </button>
-              </div>
-
-              {/* Rever tutorial */}
-              <div
-                onClick={handleReplayTutorial}
-                className="w-full p-3.5 rounded-2xl bg-white hover:bg-slate-50 border border-slate-100 hover:border-slate-200 shadow-2xs flex items-center justify-between transition-all cursor-pointer active:scale-98"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-9 h-9 rounded-xl bg-[#E8FBF0] text-[#00D26A] flex items-center justify-center shrink-0">
-                    <Sparkles className="w-4 h-4 stroke-[2.2]" />
-                  </div>
-                  <div className="min-w-0 text-left">
-                    <h5 className="text-xs font-bold text-slate-900 truncate">
-                      Rever tutorial
-                    </h5>
-                    <p className="text-[11px] text-slate-500 leading-snug">
-                      Veja novamente como usar o Financeiro Express.
-                    </p>
-                  </div>
-                </div>
-                <ChevronRight className="w-4 h-4 text-slate-400 shrink-0 ml-2" />
-              </div>
-            </div>
-
-            <div className="pt-4 mt-4 border-t border-slate-100 text-center">
-              <span className="text-[11px] font-semibold text-slate-400 block">
-                Financeiro Express • Versão 2.1
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
       {/* MODAL: EDITAR PERFIL E METAS FINANCEIRAS                                   */}
       {/* ========================================================================= */}
       {isEditProfileOpen && (
@@ -755,7 +795,7 @@ export const ProfileView: React.FC<ProfileViewProps> = () => {
               {/* Orçamento Mensal */}
               <div>
                 <label className="text-xs text-slate-700 font-bold block mb-1">
-                  Orçamento Mensal (R$)
+                  Orçamento Total do Mês (R$)
                 </label>
                 <input
                   type="number"
@@ -766,22 +806,28 @@ export const ProfileView: React.FC<ProfileViewProps> = () => {
                   onChange={e => setEditedBudget(e.target.value)}
                   className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 text-slate-900 focus:outline-none focus:border-[#00D26A] font-mono transition-colors"
                 />
+                <span className="text-[11px] text-slate-400 mt-1 block">
+                  Defina o limite de gastos para o planejamento mensal.
+                </span>
               </div>
 
-              {/* Meta de Economia Semanal */}
+              {/* Meta de Economia Mensal */}
               <div>
-                <label className="text-xs text-slate-700 font-bold block mb-1">
-                  Meta de Economia Semanal (R$)
+                <label className="text-xs font-bold text-slate-700 block mb-1">
+                  Meta de Economia Mensal (R$)
                 </label>
                 <input
                   type="number"
                   step="0.01"
                   required
-                  placeholder="250.00"
-                  value={editedWeeklyTarget}
-                  onChange={e => setEditedWeeklyTarget(e.target.value)}
+                  placeholder="1000.00"
+                  value={editedMonthlyTarget}
+                  onChange={e => handleMonthlyTargetChange(e.target.value)}
                   className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 text-slate-900 focus:outline-none focus:border-[#00D26A] font-mono transition-colors"
                 />
+                <span className="text-[11px] text-slate-400 mt-1 block">
+                  Defina o valor alvo que deseja poupar a cada mês.
+                </span>
               </div>
 
               {profileFeedback && (

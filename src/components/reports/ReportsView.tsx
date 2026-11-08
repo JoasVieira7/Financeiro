@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useFinance, CATEGORY_COLORS } from '../../context/FinanceContext';
 import { useAuth } from '../../context/AuthContext';
-import { formatCurrency } from '../../lib/formatters';
+import { formatCurrency, getTransactionDueDate, isTransactionPaid } from '../../lib/formatters';
 import { PlanComparisonModal } from '../profile/PaymentModal';
 import {
   PieChart,
@@ -19,7 +19,14 @@ import {
 import { TransactionCategory, PaymentMethod } from '../../types';
 
 export const ReportsView: React.FC = () => {
-  const { stats, recurringExpenses, addRecurringExpense, deleteRecurringExpense, toggleRecurringExpense } = useFinance();
+  const {
+    stats,
+    transactions,
+    recurringExpenses,
+    addRecurringExpense,
+    deleteRecurringExpense,
+    toggleRecurringExpense,
+  } = useFinance();
   const { profile } = useAuth();
   const [period, setPeriod] = useState<'current' | 'previous'>('current');
   const [isAddingRecurring, setIsAddingRecurring] = useState(false);
@@ -31,6 +38,77 @@ export const ReportsView: React.FC = () => {
   const [recDay, setRecDay] = useState('5');
 
   const isPremium = profile?.plan_tier === 'premium';
+
+  // Cálculos do período selecionado (Este Mês vs Mês Anterior)
+  const reportData = useMemo(() => {
+    if (period === 'current') {
+      return {
+        income: stats.monthlyIncome,
+        expense: stats.monthlyExpense,
+        categoryBreakdown: stats.categoryBreakdown,
+      };
+    }
+
+    // Mês Anterior com cálculo temporal preciso
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+    const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+    const prevMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+
+    const prevMonthTx = transactions.filter(t => {
+      const d = t.installment_group_id ? getTransactionDueDate(t) : new Date(t.created_at);
+      return d.getMonth() === prevMonth && d.getFullYear() === prevMonthYear;
+    });
+
+    const prevExpenses = prevMonthTx.filter(t => t.type === 'expense');
+    const expense = prevExpenses
+      .filter(t => isTransactionPaid(t))
+      .reduce((acc, t) => acc + Number(t.amount), 0);
+
+    const income = prevMonthTx
+      .filter(t => t.type === 'income')
+      .reduce((acc, t) => acc + Number(t.amount), 0);
+
+    // Distribuição por categoria do mês anterior
+    const categoryTotals: Record<string, { amount: number; count: number }> = {};
+    prevExpenses
+      .filter(t => isTransactionPaid(t))
+      .forEach(t => {
+        if (!categoryTotals[t.category]) {
+          categoryTotals[t.category] = { amount: 0, count: 0 };
+        }
+        categoryTotals[t.category].amount += Number(t.amount);
+        categoryTotals[t.category].count += 1;
+      });
+
+    const categoryBreakdown = Object.entries(categoryTotals)
+      .map(([cat, val]) => {
+        const categoryKey = cat as TransactionCategory;
+        const conf = CATEGORY_COLORS[categoryKey] || {
+          color: '#00F59B',
+          bg: '',
+          icon: '🏷️',
+          defaultLimit: 400,
+        };
+        const pct = expense > 0 ? Math.round((val.amount / expense) * 100) : 0;
+        return {
+          category: categoryKey,
+          amount: val.amount,
+          percentage: pct,
+          count: val.count,
+          color: conf.color,
+          icon: conf.icon,
+        };
+      })
+      .sort((a, b) => b.amount - a.amount);
+
+    return {
+      income,
+      expense,
+      categoryBreakdown,
+    };
+  }, [period, stats, transactions]);
 
   const totalRecurring = recurringExpenses
     .filter(r => r.is_active)
@@ -101,14 +179,14 @@ export const ReportsView: React.FC = () => {
           <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100/80">
             <span className="text-[10px] text-slate-500 block mb-1">Receitas Consolidadas</span>
             <span className="text-sm font-extrabold text-emerald-500 font-mono block">
-              + {formatCurrency(stats.monthlyIncome)}
+              + {formatCurrency(reportData.income)}
             </span>
           </div>
 
           <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100/80">
             <span className="text-[10px] text-slate-500 block mb-1">Despesas Consolidadas</span>
             <span className="text-sm font-extrabold text-rose-500 font-mono block">
-              - {formatCurrency(stats.monthlyExpense)}
+              - {formatCurrency(reportData.expense)}
             </span>
           </div>
         </div>
@@ -118,18 +196,18 @@ export const ReportsView: React.FC = () => {
             <span className="text-[10px] text-slate-500 block">Saldo Líquido Gerado</span>
             <span
               className={`text-base font-extrabold font-mono ${
-                stats.monthlyIncome >= stats.monthlyExpense ? 'text-emerald-500' : 'text-rose-500'
+                reportData.income >= reportData.expense ? 'text-emerald-500' : 'text-rose-500'
               }`}
             >
-              {formatCurrency(stats.monthlyIncome - stats.monthlyExpense)}
+              {formatCurrency(reportData.income - reportData.expense)}
             </span>
           </div>
 
           <div className="text-right">
             <span className="text-[10px] text-slate-500 block">Comprometimento de Renda</span>
             <span className="text-xs font-bold text-slate-700 font-mono">
-              {stats.monthlyIncome > 0
-                ? Math.round((stats.monthlyExpense / stats.monthlyIncome) * 100)
+              {reportData.income > 0
+                ? Math.round((reportData.expense / reportData.income) * 100)
                 : 0}%
             </span>
           </div>
@@ -150,11 +228,11 @@ export const ReportsView: React.FC = () => {
           </div>
         </div>
 
-        {stats.categoryBreakdown.length === 0 ? (
+        {reportData.categoryBreakdown.length === 0 ? (
           <p className="text-xs text-slate-400 text-center py-4">Nenhum gasto lançado neste período.</p>
         ) : (
           <div className="space-y-3 pt-1">
-            {stats.categoryBreakdown.map(cat => (
+            {reportData.categoryBreakdown.map(cat => (
               <div key={cat.category} className="space-y-1">
                 <div className="flex items-center justify-between text-xs">
                   <div className="flex items-center gap-2">

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
+import React, { createContext, useContext, useEffect, useState, useMemo, useRef } from 'react';
 import {
   Transaction,
   SavingsGoal,
@@ -10,16 +10,50 @@ import {
   DashboardStats,
   CategorySummary,
   PLAN_LIMITS,
+  FutureCommitmentsSummary,
+  FutureCommitmentMonth,
+  InstallmentGroupSummary,
+  AppNotification,
+  GoalPeriodType,
 } from '../types';
 import { useAuth } from './AuthContext';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { dispatchSystemPushNotification } from '../lib/pushNotifications';
 import {
   INITIAL_TRANSACTIONS,
   INITIAL_GOALS,
   INITIAL_RECURRING,
   INITIAL_CONTRIBUTIONS,
 } from '../lib/demoStorage';
-import { getInstallmentDates, calculateInstallmentAmounts } from '../lib/formatters';
+import {
+  getInstallmentDates,
+  calculateInstallmentAmounts,
+  getTransactionDueDate,
+  isTransactionPaid,
+  getTransactionStatus,
+  formatMonthYear,
+} from '../lib/formatters';
+import {
+  monthlyToWeekly,
+  weeklyToMonthly,
+  roundToCents,
+  getEffectiveBudget,
+  getEffectiveSavingTarget,
+} from '../lib/budgetCalculations';
+import { ParsedInstallmentPurchase, inferCategory } from '../lib/installmentExcelParser';
+import { EditablePdfItem, InvoiceMetadata } from '../lib/pdfAdapters';
+import { generatePdfImportIdempotencyPlan, generateDeterministicUuid, Sha256UnavailableError } from '../lib/idempotency';
+
+export function generateSecureUuid(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
 
 export const CATEGORY_COLORS: Record<
   TransactionCategory,
@@ -46,12 +80,26 @@ export interface AddInstallmentExpenseParams {
   notes?: string;
 }
 
+export interface ImportPdfResult {
+  success: boolean;
+  importedPurchasesCount: number;
+  totalTransactionsCreated: number;
+  oneOffCount: number;
+  installmentPurchasesCount: number;
+  ignoredCount: number;
+  duplicatesCount: number;
+  alreadyProcessed?: boolean;
+  idempotencyKey?: string;
+  error?: string;
+}
+
 interface FinanceContextType {
   transactions: Transaction[];
   goals: SavingsGoal[];
   goalContributions: GoalContribution[];
   recurringExpenses: RecurringExpense[];
   stats: DashboardStats;
+  futureCommitments: FutureCommitmentsSummary;
   loading: boolean;
   addTransaction: (
     amount: number,
@@ -65,18 +113,35 @@ interface FinanceContextType {
   addInstallmentExpense: (
     params: AddInstallmentExpenseParams
   ) => Promise<{ success: boolean; error?: string }>;
+  importInstallmentPurchases: (
+    purchases: ParsedInstallmentPurchase[]
+  ) => Promise<{
+    success: boolean;
+    importedCount: number;
+    totalInstallmentsCount: number;
+    error?: string;
+  }>;
+  importPdfInvoicePurchases: (
+    items: EditablePdfItem[],
+    metadata: InvoiceMetadata
+  ) => Promise<ImportPdfResult>;
   updateTransaction: (
     id: string,
     updates: Partial<Omit<Transaction, 'id' | 'user_id' | 'created_at'>>,
     updateAllInstallments?: boolean
   ) => Promise<{ success: boolean; error?: string }>;
   deleteTransaction: (id: string, deleteAllInstallments?: boolean) => Promise<void>;
+  toggleInstallmentPaid: (transactionId: string) => Promise<{ success: boolean; error?: string }>;
+  getInstallmentGroup: (groupId: string) => InstallmentGroupSummary | undefined;
   addSavingsGoal: (
     title: string,
     targetAmount: number,
     deadline?: string,
     icon?: string,
-    color?: string
+    color?: string,
+    periodType?: GoalPeriodType,
+    startDate?: string,
+    endDate?: string
   ) => Promise<{ success: boolean; error?: string }>;
   updateSavingsGoal: (
     goalId: string,
@@ -101,6 +166,11 @@ interface FinanceContextType {
   ) => Promise<{ success: boolean; error?: string }>;
   deleteRecurringExpense: (id: string) => Promise<void>;
   toggleRecurringExpense: (id: string) => Promise<void>;
+  notifications: AppNotification[];
+  unreadNotificationsCount: number;
+  markNotificationAsRead: (id: string) => Promise<void>;
+  markAllNotificationsAsRead: () => Promise<void>;
+  refreshNotifications: () => Promise<void>;
   refreshData: () => Promise<void>;
 }
 
@@ -111,6 +181,7 @@ const LOCAL_STORAGE_GOALS_KEY = 'finexpress_goals';
 const LOCAL_STORAGE_CONTRIB_KEY = 'finexpress_goal_contributions';
 const LOCAL_STORAGE_RECURRING_KEY = 'finexpress_recurring';
 const LOCAL_STORAGE_CAT_LIMITS_KEY = 'finexpress_cat_limits';
+const LOCAL_STORAGE_NOTIFS_LIST_KEY = 'finexpress_user_notifications';
 
 export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, profile, isDemo } = useAuth();
@@ -118,9 +189,16 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [goals, setGoals] = useState<SavingsGoal[]>([]);
   const [goalContributions, setGoalContributions] = useState<GoalContribution[]>([]);
   const [recurringExpenses, setRecurringExpenses] = useState<RecurringExpense[]>([]);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [customCatLimits, setCustomCatLimits] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState<boolean>(true);
   const [lastSubmissionTime, setLastSubmissionTime] = useState<number>(0);
+  const isImportingPdfRef = useRef<boolean>(false);
+
+  const unreadNotificationsCount = useMemo(
+    () => notifications.filter(n => !n.is_read).length,
+    [notifications]
+  );
 
   const loadData = async () => {
     if (!user) {
@@ -128,6 +206,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setGoals([]);
       setGoalContributions([]);
       setRecurringExpenses([]);
+      setNotifications([]);
       setLoading(false);
       return;
     }
@@ -136,7 +215,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     if (isSupabaseConfigured && !isDemo) {
       try {
-        const [txRes, goalsRes, recRes, contribRes] = await Promise.all([
+        const [txRes, goalsRes, recRes, contribRes, notifRes] = await Promise.all([
           supabase
             .from('transactions')
             .select('*')
@@ -157,12 +236,37 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
             .select('*')
             .eq('user_id', user.id)
             .order('created_at', { ascending: false }),
+          supabase
+            .from('notifications')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false }),
         ]);
 
         if (txRes.data) setTransactions(txRes.data);
         if (goalsRes.data) setGoals(goalsRes.data);
         if (recRes.data) setRecurringExpenses(recRes.data);
         if (contribRes.data) setGoalContributions(contribRes.data);
+        if (notifRes.data) setNotifications(notifRes.data);
+
+        // Checagem em background de alertas programados (vencimentos)
+        supabase
+          .rpc('check_financial_alerts')
+          .then(
+            () => {
+              supabase
+                .from('notifications')
+                .select('*')
+                .eq('user_id', user.id)
+                .order('created_at', { ascending: false })
+                .then(({ data }) => {
+                  if (data) setNotifications(data);
+                });
+            },
+            () => {
+              // RPC pode não estar criada no banco ainda, falha silenciosamente
+            }
+          );
       } catch (err) {
         console.error('Falha ao carregar do Supabase:', err);
       } finally {
@@ -210,10 +314,30 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
       }
 
+      // Notificações Demo
+      const storedNotifs = localStorage.getItem(LOCAL_STORAGE_NOTIFS_LIST_KEY);
+      let allNotifs: AppNotification[] = storedNotifs ? JSON.parse(storedNotifs) : [];
+      if (allNotifs.length === 0) {
+        allNotifs = [
+          {
+            id: 'notif-welcome',
+            user_id: user.id,
+            title: 'Bem-vindo ao Financeiro Express! 🎉',
+            message: 'Acompanhe seus lançamentos, despesas e metas semanais ou mensais em tempo real.',
+            type: 'system',
+            is_read: false,
+            link: '/goals',
+            created_at: new Date().toISOString(),
+          },
+        ];
+        localStorage.setItem(LOCAL_STORAGE_NOTIFS_LIST_KEY, JSON.stringify(allNotifs));
+      }
+
       setTransactions(allTx.filter(t => t.user_id === user.id));
       setGoals(allGoals.filter(g => g.user_id === user.id));
       setGoalContributions(allContrib.filter(c => c.user_id === user.id));
       setRecurringExpenses(allRec.filter(r => r.user_id === user.id));
+      setNotifications(allNotifs.filter(n => n.user_id === user.id));
     } catch (e) {
       console.error('Erro ao ler armazenamento local:', e);
     } finally {
@@ -223,6 +347,36 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   useEffect(() => {
     loadData();
+
+    if (isSupabaseConfigured && !isDemo && user?.id) {
+      const channel = supabase
+        .channel(`notifs:${user.id}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'notifications',
+            filter: `user_id=eq.${user.id}`,
+          },
+          payload => {
+            if (payload.eventType === 'INSERT') {
+              setNotifications(prev => [payload.new as AppNotification, ...prev]);
+            } else if (payload.eventType === 'UPDATE') {
+              setNotifications(prev =>
+                prev.map(n => (n.id === payload.new.id ? (payload.new as AppNotification) : n))
+              );
+            } else if (payload.eventType === 'DELETE') {
+              setNotifications(prev => prev.filter(n => n.id !== payload.old.id));
+            }
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }
   }, [user?.id, isDemo]);
 
   // Add transaction (validates amount, guards against rapid duplicates)
@@ -250,6 +404,9 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
     setLastSubmissionTime(now);
 
+    const isoNow = new Date().toISOString();
+    const todayDateStr = isoNow.split('T')[0];
+
     const newTx: Transaction = {
       id: `tx-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
       user_id: user.id,
@@ -260,7 +417,11 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       type,
       is_recurring: isRecurring,
       notes: notes?.trim() || undefined,
-      created_at: new Date().toISOString(),
+      created_at: isoNow,
+      purchase_date: isoNow,
+      due_date: todayDateStr,
+      paid_at: isoNow,
+      status: 'paid',
     };
 
     setTransactions(prev => [newTx, ...prev]);
@@ -278,6 +439,10 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
             is_recurring: newTx.is_recurring,
             notes: newTx.notes,
             created_at: newTx.created_at,
+            purchase_date: newTx.purchase_date,
+            due_date: newTx.due_date,
+            paid_at: newTx.paid_at,
+            status: newTx.status,
           },
         ]);
 
@@ -337,9 +502,20 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const dates = getInstallmentDates(parsedStartDate, numInstallments);
     const amounts = calculateInstallmentAmounts(numTotal, numInstallments);
     const finalDescription = description?.trim() || `${category}`;
+    const purchaseDateIso = parsedStartDate.toISOString();
+    const today = new Date();
 
     const newTxList: Transaction[] = [];
     for (let i = 0; i < numInstallments; i++) {
+      const dueDate = dates[i];
+      const dueDateStr = dueDate.toISOString().split('T')[0];
+      
+      // Primeira parcela: se a data inicial for hoje ou passada, considera paga
+      // Parcelas seguintes: sempre nascem como pendentes
+      const isFirstPaid = i === 0 && dueDate <= today;
+      const status: 'paid' | 'pending' = isFirstPaid ? 'paid' : 'pending';
+      const paidAt = isFirstPaid ? dueDate.toISOString() : null;
+
       newTxList.push({
         id: `tx-inst-${Date.now()}-${i + 1}-${Math.random().toString(36).substr(2, 4)}`,
         user_id: user.id,
@@ -350,7 +526,11 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         type: 'expense',
         is_recurring: false,
         notes: notes?.trim() || undefined,
-        created_at: dates[i].toISOString(),
+        created_at: purchaseDateIso,
+        purchase_date: purchaseDateIso,
+        due_date: dueDateStr,
+        paid_at: paidAt,
+        status,
         installment_group_id: groupId,
         installment_number: i + 1,
         installment_total: numInstallments,
@@ -378,6 +558,10 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
           is_recurring: t.is_recurring,
           notes: t.notes,
           created_at: t.created_at,
+          purchase_date: t.purchase_date,
+          due_date: t.due_date,
+          paid_at: t.paid_at,
+          status: t.status,
           installment_group_id: t.installment_group_id,
           installment_number: t.installment_number,
           installment_total: t.installment_total,
@@ -404,6 +588,551 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     return { success: true };
+  };
+
+  // Importar compras parceladas em lote a partir de planilha Excel/CSV
+  const importInstallmentPurchases = async (
+    purchases: ParsedInstallmentPurchase[]
+  ): Promise<{
+    success: boolean;
+    importedCount: number;
+    totalInstallmentsCount: number;
+    error?: string;
+  }> => {
+    if (!user) {
+      return {
+        success: false,
+        importedCount: 0,
+        totalInstallmentsCount: 0,
+        error: 'Usuário não autenticado',
+      };
+    }
+
+    if (!purchases || purchases.length === 0) {
+      return {
+        success: false,
+        importedCount: 0,
+        totalInstallmentsCount: 0,
+        error: 'Nenhuma compra selecionada para importação.',
+      };
+    }
+
+    const allNewTransactions: Transaction[] = [];
+    const now = new Date();
+    const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    for (let pIdx = 0; pIdx < purchases.length; pIdx++) {
+      const p = purchases[pIdx];
+      const groupId = `inst-imp-${Date.now()}-${pIdx}-${Math.random().toString(36).substr(2, 6)}`;
+
+      // Distribuição contábil exata de centavos para todas as parcelas
+      const amounts = calculateInstallmentAmounts(p.totalAmount, p.totalInstallments);
+
+      // Data de vencimento base da parcela atual pendente
+      const baseDueDate = new Date(`${p.dueDate}T12:00:00`);
+      const validBaseDueDate = isNaN(baseDueDate.getTime()) ? now : baseDueDate;
+
+      // Projeta datas mensais para as parcelas pendentes
+      const dates = getInstallmentDates(validBaseDueDate, p.pendingInstallmentsCount);
+
+      const purchaseIso = p.purchaseDate
+        ? `${p.purchaseDate}T12:00:00.000Z`
+        : now.toISOString();
+
+      // Gera exclusivamente as parcelas pendentes (da parcelaAtual até totalInstallments)
+      for (let i = 0; i < p.pendingInstallmentsCount; i++) {
+        const installmentNum = p.currentInstallment + i;
+        const dueDateObj = dates[i];
+        const dueDateStr = dueDateObj.toISOString().split('T')[0];
+
+        // Regra da Etapa 19: Todas as parcelas pendentes começam como NÃO PAGAS
+        const isOverdue = dueDateObj < todayMidnight;
+        const status: 'pending' | 'overdue' = isOverdue ? 'overdue' : 'pending';
+
+        // Regra da Etapa 20: Utiliza o valor da parcela fornecido pela planilha como referência direta
+        const installmentAmount =
+          p.installmentAmount > 0
+            ? p.installmentAmount
+            : amounts[installmentNum - 1] !== undefined
+            ? amounts[installmentNum - 1]
+            : roundToCents(p.totalAmount / p.totalInstallments);
+
+        const txId = `tx-inst-imp-${Date.now()}-${pIdx}-${installmentNum}-${Math.random().toString(36).substr(2, 4)}`;
+
+        allNewTransactions.push({
+          id: txId,
+          user_id: user.id,
+          amount: installmentAmount,
+          category: p.category || 'Compras',
+          payment_method: 'cartao_credito',
+          description: p.description.trim(),
+          type: 'expense',
+          is_recurring: false,
+          notes: `Cartão: ${p.cardName}${p.statusRaw ? ' · ' + p.statusRaw : ''}`,
+          created_at: purchaseIso,
+          purchase_date: purchaseIso,
+          due_date: dueDateStr,
+          paid_at: null, // NUNCA marcada como paga no momento da importação
+          status,
+          installment_group_id: groupId,
+          installment_number: installmentNum,
+          installment_total: p.totalInstallments,
+          installment_purchase_amount: p.totalAmount,
+        });
+      }
+    }
+
+    if (allNewTransactions.length === 0) {
+      return {
+        success: false,
+        importedCount: 0,
+        totalInstallmentsCount: 0,
+        error: 'Nenhuma parcela pendente gerada a partir dos registros.',
+      };
+    }
+
+    // Atualiza estado local mantendo ordenação
+    setTransactions(prev => {
+      const merged = [...allNewTransactions, ...prev];
+      return merged.sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+    });
+
+    if (isSupabaseConfigured && !isDemo) {
+      try {
+        const payload = allNewTransactions.map(t => ({
+          user_id: user.id,
+          amount: t.amount,
+          category: t.category,
+          payment_method: t.payment_method,
+          description: t.description,
+          type: t.type,
+          is_recurring: t.is_recurring,
+          notes: t.notes,
+          created_at: t.created_at,
+          purchase_date: t.purchase_date,
+          due_date: t.due_date,
+          paid_at: t.paid_at,
+          status: t.status,
+          installment_group_id: t.installment_group_id,
+          installment_number: t.installment_number,
+          installment_total: t.installment_total,
+          installment_purchase_amount: t.installment_purchase_amount,
+        }));
+
+        const { error } = await supabase.from('transactions').insert(payload);
+        if (error) {
+          const insertedGroupIds = new Set(allNewTransactions.map(t => t.installment_group_id));
+          setTransactions(prev => prev.filter(t => !insertedGroupIds.has(t.installment_group_id)));
+          return {
+            success: false,
+            importedCount: 0,
+            totalInstallmentsCount: 0,
+            error: error.message,
+          };
+        }
+      } catch (err: any) {
+        const insertedGroupIds = new Set(allNewTransactions.map(t => t.installment_group_id));
+        setTransactions(prev => prev.filter(t => !insertedGroupIds.has(t.installment_group_id)));
+        return {
+          success: false,
+          importedCount: 0,
+          totalInstallmentsCount: 0,
+          error: err.message,
+        };
+      }
+    } else {
+      const storedTx = localStorage.getItem(LOCAL_STORAGE_TX_KEY);
+      const allTx: Transaction[] = storedTx ? JSON.parse(storedTx) : [];
+      allTx.unshift(...allNewTransactions);
+      allTx.sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+      localStorage.setItem(LOCAL_STORAGE_TX_KEY, JSON.stringify(allTx));
+    }
+
+    return {
+      success: true,
+      importedCount: purchases.length,
+      totalInstallmentsCount: allNewTransactions.length,
+    };
+  };
+
+  // Importar compras de fatura PDF (à vista e parceladas pendentes) com persistência atômica
+  const importPdfInvoicePurchases = async (
+    items: EditablePdfItem[],
+    metadata: InvoiceMetadata
+  ): Promise<ImportPdfResult> => {
+    if (!user) {
+      return {
+        success: false,
+        importedPurchasesCount: 0,
+        totalTransactionsCreated: 0,
+        oneOffCount: 0,
+        installmentPurchasesCount: 0,
+        ignoredCount: 0,
+        duplicatesCount: 0,
+        error: 'Usuário não autenticado',
+      };
+    }
+
+    if (isImportingPdfRef.current) {
+      return {
+        success: false,
+        importedPurchasesCount: 0,
+        totalTransactionsCreated: 0,
+        oneOffCount: 0,
+        installmentPurchasesCount: 0,
+        ignoredCount: 0,
+        duplicatesCount: 0,
+        error: 'Uma importação já está em andamento. Aguarde.',
+      };
+    }
+
+    isImportingPdfRef.current = true;
+
+    try {
+      // Filtrar apenas compras válidas e selecionadas (excluindo categoricamente pagamentos, estornos e taxas)
+      const selectedPurchases = items.filter(
+        item =>
+          item.isSelected &&
+          item.isValid &&
+          (item.type === 'one_off' || item.type === 'installment')
+      );
+
+      const ignoredCount = items.filter(
+        item =>
+          item.type === 'payment' ||
+          item.type === 'refund' ||
+          item.type === 'fee' ||
+          item.type === 'other' ||
+          !item.isSelected
+      ).length;
+
+      const duplicatesCount = items.filter(item => item.isDuplicate).length;
+
+      if (selectedPurchases.length === 0) {
+        return {
+          success: false,
+          importedPurchasesCount: 0,
+          totalTransactionsCreated: 0,
+          oneOffCount: 0,
+          installmentPurchasesCount: 0,
+          ignoredCount,
+          duplicatesCount,
+          error: 'Nenhuma compra válida selecionada para importação.',
+        };
+      }
+
+      let idempotencyPlan: Awaited<ReturnType<typeof generatePdfImportIdempotencyPlan>>;
+      try {
+        idempotencyPlan = await generatePdfImportIdempotencyPlan(
+          user.id,
+          metadata,
+          selectedPurchases
+        );
+      } catch (err: unknown) {
+        // Sha256UnavailableError: crypto.subtle indisponível (navegador antigo/restrito).
+        // Nenhuma transação é enviada ao Supabase nesse cenário.
+        if (err instanceof Sha256UnavailableError) {
+          return {
+            success: false,
+            importedPurchasesCount: 0,
+            totalTransactionsCreated: 0,
+            oneOffCount: 0,
+            installmentPurchasesCount: 0,
+            ignoredCount,
+            duplicatesCount,
+            error: (err as Sha256UnavailableError).message,
+          };
+        }
+        throw err; // outros erros inesperados: propaga para o try/finally externo
+      }
+
+      const allNewTransactions: Transaction[] = [];
+      const now = new Date();
+      const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+      let oneOffCount = 0;
+      let installmentPurchasesCount = 0;
+
+      for (let pIdx = 0; pIdx < selectedPurchases.length; pIdx++) {
+        const p = selectedPurchases[pIdx];
+        const cardName = p.cardName?.trim() || metadata.issuer || 'Cartão de Crédito';
+        const category: TransactionCategory =
+          (p.category as TransactionCategory) || inferCategory(p.description) || 'Compras';
+
+        const purchaseIso = p.purchaseDate
+          ? `${p.purchaseDate}T12:00:00.000Z`
+          : now.toISOString();
+
+        // A data de vencimento da fatura/competência tem prevalência sobre estimativas locais
+        const baseDueDate = metadata.dueDate
+          ? new Date(`${metadata.dueDate}T12:00:00`)
+          : p.dueDate
+          ? new Date(`${p.dueDate}T12:00:00`)
+          : now;
+        const validBaseDueDate = isNaN(baseDueDate.getTime()) ? now : baseDueDate;
+
+        if (p.type === 'one_off') {
+          // COMPRA À VISTA: lançamento único, sem installment_group_id
+          oneOffCount++;
+          const dueDateStr =
+            metadata.dueDate || p.dueDate || validBaseDueDate.toISOString().split('T')[0];
+          const dueDateObj = new Date(`${dueDateStr}T12:00:00`);
+          const isOverdue = !isNaN(dueDateObj.getTime()) && dueDateObj < todayMidnight;
+          const status: 'pending' | 'overdue' = isOverdue ? 'overdue' : 'pending';
+          const txId = generateDeterministicUuid(idempotencyPlan.payloadHash, `tx-${pIdx}`);
+
+          allNewTransactions.push({
+            id: txId,
+            user_id: user.id,
+            amount: roundToCents(p.amount),
+            category,
+            payment_method: 'cartao_credito',
+            description: p.description.trim(),
+            type: 'expense',
+            is_recurring: false,
+            notes: `Fatura ${metadata.issuer || 'PDF'} · Cartão: ${cardName} · Compra à vista`,
+            created_at: purchaseIso,
+            purchase_date: purchaseIso,
+            due_date: dueDateStr,
+            paid_at: null, // NUNCA marcada como paga no momento da importação
+            status,
+            installment_group_id: undefined,
+            installment_number: undefined,
+            installment_total: undefined,
+            installment_purchase_amount: undefined,
+          });
+        } else {
+          // COMPRA PARCELADA: cria exclusivamente as parcelas pendentes (currentInstallment até totalInstallments)
+          installmentPurchasesCount++;
+          const cur = Math.max(1, p.currentInstallment || 1);
+          const tot = Math.max(cur, p.totalInstallments || cur);
+          const pendingCount = Math.max(1, tot - cur + 1);
+
+          const groupId =
+            'inst-pdf-' +
+            generateDeterministicUuid(idempotencyPlan.payloadHash, `grp-${pIdx}`).substring(0, 18);
+          // Projeta datas mensais respeitando virada de ano e dia do mês
+          const dates = getInstallmentDates(validBaseDueDate, pendingCount);
+
+          // Valor total contratado apenas quando explicitamente informado
+          const explicitTotalAmount =
+            p.totalAmount && p.totalAmount > 0 ? roundToCents(p.totalAmount) : undefined;
+
+          for (let i = 0; i < pendingCount; i++) {
+            const installmentNum = cur + i;
+            const dueDateObj = dates[i];
+            const dueDateStr = dueDateObj.toISOString().split('T')[0];
+
+            const isOverdue = dueDateObj < todayMidnight;
+            const status: 'pending' | 'overdue' = isOverdue ? 'overdue' : 'pending';
+
+            const txId = generateDeterministicUuid(
+              idempotencyPlan.payloadHash, `inst-${pIdx}-${installmentNum}`
+            );
+
+            allNewTransactions.push({
+              id: txId,
+              user_id: user.id,
+              amount: roundToCents(p.amount), // Valor individual identificado na fatura
+              category,
+              payment_method: 'cartao_credito',
+              description: p.description.trim(),
+              type: 'expense',
+              is_recurring: false,
+              notes: `Fatura ${metadata.issuer || 'PDF'} · Cartão: ${cardName} · Parcela ${installmentNum}/${tot}`,
+              created_at: purchaseIso,
+              purchase_date: purchaseIso,
+              due_date: dueDateStr,
+              paid_at: null, // NUNCA marcada como paga no momento da importação
+              status,
+              installment_group_id: groupId,
+              installment_number: installmentNum,
+              installment_total: tot,
+              installment_purchase_amount: explicitTotalAmount,
+            });
+          }
+        }
+      }
+
+      if (allNewTransactions.length === 0) {
+        return {
+          success: false,
+          importedPurchasesCount: 0,
+          totalTransactionsCreated: 0,
+          oneOffCount: 0,
+          installmentPurchasesCount: 0,
+          ignoredCount,
+          duplicatesCount,
+          error: 'Nenhuma transação foi gerada a partir das compras selecionadas.',
+        };
+      }
+
+      let alreadyProcessed = false;
+
+      if (isSupabaseConfigured && !isDemo) {
+        const createdTxIds = new Set(allNewTransactions.map(t => t.id));
+        const payload = allNewTransactions.map(t => ({
+          id: t.id,
+          user_id: user.id,
+          amount: t.amount,
+          category: t.category,
+          payment_method: t.payment_method,
+          description: t.description,
+          type: t.type,
+          is_recurring: t.is_recurring,
+          notes: t.notes,
+          created_at: t.created_at,
+          purchase_date: t.purchase_date,
+          due_date: t.due_date,
+          paid_at: t.paid_at,
+          status: t.status,
+          installment_group_id: t.installment_group_id || null,
+          installment_number: t.installment_number || null,
+          installment_total: t.installment_total || null,
+          installment_purchase_amount: t.installment_purchase_amount || null,
+        }));
+
+        let rpcSuccess = false;
+
+        // 1. TENTATIVA TRANSACIONAL ATÔMICA VIA RPC POSTGRESQL (ÚNICO MÉTODO SEGURO EM PRODUÇÃO)
+        try {
+          const { data: rpcData, error: rpcError } = await supabase.rpc(
+            'import_pdf_invoice_batch',
+            {
+              p_idempotency_key: idempotencyPlan.idempotencyKey,
+              p_source: 'pdf',
+              p_payload_hash: idempotencyPlan.payloadHash,
+              p_metadata: {
+                issuer: metadata.issuer || null,
+                dueDate: metadata.dueDate || null,
+                totalInvoiceAmount: metadata.totalInvoiceAmount || null,
+              },
+              p_transactions: payload,
+            }
+          );
+
+          if (!rpcError && rpcData && rpcData.success) {
+            rpcSuccess = true;
+            alreadyProcessed = Boolean(rpcData.already_processed);
+          } else if (rpcError) {
+            const isFunctionNotFound =
+              rpcError.code === '42883' ||
+              rpcError.code === 'PGRST202' ||
+              (rpcError.message && rpcError.message.toLowerCase().includes('could not find'));
+
+            if (isFunctionNotFound) {
+              // Por diretriz estrita de segurança e integridade financeira (Etapa 29),
+              // não executamos inserções HTTP parciais sem garantias transacionais de banco.
+              return {
+                success: false,
+                importedPurchasesCount: 0,
+                totalTransactionsCreated: 0,
+                oneOffCount: 0,
+                installmentPurchasesCount: 0,
+                ignoredCount,
+                duplicatesCount,
+                error:
+                  'A gravação segura e atômica de faturas PDF requer a ativação da migration RPC "import_pdf_invoice_batch" no Supabase. Por integridade financeira, a operação foi suspensa para evitar lançamentos parciais ou descompasso de saldo.',
+              };
+            }
+
+            return {
+              success: false,
+              importedPurchasesCount: 0,
+              totalTransactionsCreated: 0,
+              oneOffCount: 0,
+              installmentPurchasesCount: 0,
+              ignoredCount,
+              duplicatesCount,
+              error: rpcError.message,
+            };
+          }
+        } catch (rpcErr: any) {
+          return {
+            success: false,
+            importedPurchasesCount: 0,
+            totalTransactionsCreated: 0,
+            oneOffCount: 0,
+            installmentPurchasesCount: 0,
+            ignoredCount,
+            duplicatesCount,
+            error: rpcErr.message || 'Erro de comunicação ao executar a transação no banco de dados.',
+          };
+        }
+
+        if (!rpcSuccess) {
+          return {
+            success: false,
+            importedPurchasesCount: 0,
+            totalTransactionsCreated: 0,
+            oneOffCount: 0,
+            installmentPurchasesCount: 0,
+            ignoredCount,
+            duplicatesCount,
+            error: 'Falha na confirmação transacional da importação.',
+          };
+        }
+
+        // Atualização pós-confirmação no React
+        setTransactions(prev => {
+          const existingIds = new Set(prev.map(t => t.id));
+          const toAdd = allNewTransactions.filter(t => !existingIds.has(t.id));
+          const merged = [...toAdd, ...prev];
+          return merged.sort(
+            (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+          );
+        });
+      } else {
+        // MODO DEMO / LOCAL STORAGE COM IDEMPOTÊNCIA PERSISTIDA
+        const LOCAL_STORAGE_PDF_KEYS = 'finexpress_pdf_import_keys';
+        const storedKeys = localStorage.getItem(LOCAL_STORAGE_PDF_KEYS);
+        const knownKeys: string[] = storedKeys ? JSON.parse(storedKeys) : [];
+
+        if (knownKeys.includes(idempotencyPlan.idempotencyKey)) {
+          alreadyProcessed = true;
+        } else {
+          knownKeys.push(idempotencyPlan.idempotencyKey);
+          localStorage.setItem(LOCAL_STORAGE_PDF_KEYS, JSON.stringify(knownKeys));
+
+          const storedTx = localStorage.getItem(LOCAL_STORAGE_TX_KEY);
+          const allTx: Transaction[] = storedTx ? JSON.parse(storedTx) : [];
+          const existingIds = new Set(allTx.map(t => t.id));
+          const toAdd = allNewTransactions.filter(t => !existingIds.has(t.id));
+          allTx.unshift(...toAdd);
+          allTx.sort(
+            (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+          );
+          localStorage.setItem(LOCAL_STORAGE_TX_KEY, JSON.stringify(allTx));
+        }
+
+        setTransactions(prev => {
+          const existingIds = new Set(prev.map(t => t.id));
+          const toAdd = allNewTransactions.filter(t => !existingIds.has(t.id));
+          const merged = [...toAdd, ...prev];
+          return merged.sort(
+            (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+          );
+        });
+      }
+
+      return {
+        success: true,
+        alreadyProcessed,
+        idempotencyKey: idempotencyPlan.idempotencyKey,
+        importedPurchasesCount: selectedPurchases.length,
+        totalTransactionsCreated: allNewTransactions.length,
+        oneOffCount,
+        installmentPurchasesCount,
+        ignoredCount,
+        duplicatesCount,
+      };
+    } finally {
+      isImportingPdfRef.current = false;
+    }
   };
 
   const updateTransaction = async (
@@ -517,12 +1246,93 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
+  const toggleInstallmentPaid = async (transactionId: string): Promise<{ success: boolean; error?: string }> => {
+    const target = transactions.find(t => t.id === transactionId);
+    if (!target) return { success: false, error: 'Lançamento não encontrado.' };
+
+    const currentlyPaid = isTransactionPaid(target);
+    const nextStatus: 'paid' | 'pending' = currentlyPaid ? 'pending' : 'paid';
+    const nextPaidAt: string | null = currentlyPaid ? null : new Date().toISOString();
+
+    const updates = {
+      status: nextStatus,
+      paid_at: nextPaidAt,
+    };
+
+    setTransactions(prev =>
+      prev.map(t => (t.id === transactionId ? { ...t, ...updates } : t))
+    );
+
+    if (isSupabaseConfigured && !isDemo) {
+      const { error } = await supabase
+        .from('transactions')
+        .update(updates)
+        .eq('id', transactionId);
+      if (error) {
+        setTransactions(prev =>
+          prev.map(t => (t.id === transactionId ? target : t))
+        );
+        return { success: false, error: error.message };
+      }
+    } else {
+      const storedTx = localStorage.getItem(LOCAL_STORAGE_TX_KEY);
+      if (storedTx) {
+        const allTx: Transaction[] = JSON.parse(storedTx);
+        const updated = allTx.map(t => (t.id === transactionId ? { ...t, ...updates } : t));
+        localStorage.setItem(LOCAL_STORAGE_TX_KEY, JSON.stringify(updated));
+      }
+    }
+
+    return { success: true };
+  };
+
+  const getInstallmentGroup = (groupId: string): InstallmentGroupSummary | undefined => {
+    const groupItems = transactions.filter(t => t.installment_group_id === groupId);
+    if (groupItems.length === 0) return undefined;
+
+    const sorted = [...groupItems].sort(
+      (a, b) => (a.installment_number || 0) - (b.installment_number || 0)
+    );
+    const first = sorted[0];
+    const totalAmount =
+      first.installment_purchase_amount ||
+      sorted.reduce((acc, t) => acc + Number(t.amount), 0);
+    const totalInstallments = first.installment_total || sorted.length;
+    const paidCount = sorted.filter(t => isTransactionPaid(t)).length;
+    // Considera parcelas anteriores já quitadas quando o grupo foi importado a partir de uma parcela intermediária
+    const previousPaidCount = Math.max(0, (first.installment_number || 1) - 1);
+    const paidInstallments = paidCount + previousPaidCount;
+    const pendingInstallments = sorted.filter(t => !isTransactionPaid(t)).length;
+
+    const nextPending = sorted.find(t => !isTransactionPaid(t));
+    const nextDueDate = nextPending ? (nextPending.due_date || nextPending.created_at) : undefined;
+
+    return {
+      groupId,
+      description: first.description,
+      category: first.category,
+      paymentMethod: first.payment_method,
+      totalAmount,
+      installmentAmount: first.amount,
+      totalInstallments,
+      paidInstallments,
+      pendingInstallments,
+      purchaseDate: first.purchase_date || first.created_at,
+      nextDueDate,
+      status: pendingInstallments === 0 ? 'fully_paid' : 'in_progress',
+      installments: sorted,
+    };
+  };
+
   const addSavingsGoal = async (
     title: string,
     targetAmount: number,
     deadline?: string,
     icon: string = 'target',
-    color: string = 'emerald'
+    color: string = 'emerald',
+    periodType: GoalPeriodType = 'custom',
+    startDate?: string,
+    endDate?: string
   ): Promise<{ success: boolean; error?: string }> => {
     if (!user) return { success: false, error: 'Usuário não autenticado' };
 
@@ -554,6 +1364,9 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       icon,
       color,
       is_completed: false,
+      period_type: periodType,
+      start_date: startDate,
+      end_date: endDate,
       category: 'reserva',
       created_at: new Date().toISOString(),
     };
@@ -571,6 +1384,9 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
           icon: newGoal.icon,
           color: newGoal.color,
           is_completed: false,
+          period_type: newGoal.period_type,
+          start_date: newGoal.start_date,
+          end_date: newGoal.end_date,
         },
       ]);
       if (error) {
@@ -663,7 +1479,24 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     if (isSupabaseConfigured && !isDemo) {
       const { error } = await supabase.from('savings_goals').update(updates).eq('id', goalId);
-      if (error) return { success: false, error: error.message };
+      if (error) {
+        // Fallback seguro se as colunas da migration recente ainda não foram criadas no Supabase remoto
+        if (
+          error.code === '42703' ||
+          error.message.includes('period_type') ||
+          error.message.includes('start_date') ||
+          error.message.includes('end_date')
+        ) {
+          const safeUpdates = { ...updates };
+          delete safeUpdates.period_type;
+          delete safeUpdates.start_date;
+          delete safeUpdates.end_date;
+          const retry = await supabase.from('savings_goals').update(safeUpdates).eq('id', goalId);
+          if (retry.error) return { success: false, error: retry.error.message };
+        } else {
+          return { success: false, error: error.message };
+        }
+      }
     } else {
       const storedGoals = localStorage.getItem(LOCAL_STORAGE_GOALS_KEY);
       if (storedGoals) {
@@ -721,6 +1554,46 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       )
     );
 
+    // Dispara notificação se atingiu a meta ou aproximou-se (>=80%)
+    if (nextAmount >= targetGoal.target_amount && !targetGoal.is_completed) {
+      dispatchSystemPushNotification('Meta Atingida! 🎉', {
+        body: `Parabéns! Você alcançou 100% da meta "${targetGoal.title}".`,
+      });
+      if (isDemo || !isSupabaseConfigured) {
+        const notif: AppNotification = {
+          id: `notif-goal-${Date.now()}`,
+          user_id: user.id,
+          title: 'Meta Atingida! 🎉',
+          message: `Parabéns! Você alcançou 100% da meta "${targetGoal.title}".`,
+          type: 'goal_reached',
+          is_read: false,
+          link: '/goals',
+          created_at: new Date().toISOString(),
+        };
+        setNotifications(prev => [notif, ...prev]);
+      }
+    } else if (
+      nextAmount >= targetGoal.target_amount * 0.8 &&
+      targetGoal.current_amount < targetGoal.target_amount * 0.8
+    ) {
+      dispatchSystemPushNotification('Meta Próxima do Alvo! 🎯', {
+        body: `Você já ultrapassou 80% da meta "${targetGoal.title}".`,
+      });
+      if (isDemo || !isSupabaseConfigured) {
+        const notif: AppNotification = {
+          id: `notif-goal-near-${Date.now()}`,
+          user_id: user.id,
+          title: 'Meta Próxima do Alvo! 🎯',
+          message: `Você já ultrapassou 80% da sua meta "${targetGoal.title}".`,
+          type: 'goal_warning',
+          is_read: false,
+          link: '/goals',
+          created_at: new Date().toISOString(),
+        };
+        setNotifications(prev => [notif, ...prev]);
+      }
+    }
+
     // Create contribution log
     const contribution: GoalContribution = {
       id: `contrib-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
@@ -758,12 +1631,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     if (isSupabaseConfigured && !isDemo) {
-      await supabase
-        .from('savings_goals')
-        .update({ current_amount: nextAmount })
-        .eq('id', goalId);
-
-      await supabase.from('goal_contributions').insert([
+      const { error: contribError } = await supabase.from('goal_contributions').insert([
         {
           goal_id: goalId,
           user_id: user.id,
@@ -772,6 +1640,19 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
           created_at: contribution.created_at,
         },
       ]);
+
+      if (contribError) {
+        // Reverte estado local se o backend rejeitar (ex: saldo insuficiente, meta já concluída)
+        setGoals(prev =>
+          prev.map(g =>
+            g.id === goalId
+              ? { ...g, current_amount: targetGoal.current_amount, is_completed: targetGoal.is_completed }
+              : g
+          )
+        );
+        setGoalContributions(prev => prev.filter(c => c.id !== contribution.id));
+        return { success: false, error: contribError.message };
+      }
     } else {
       // Local Storage update
       const storedGoals = localStorage.getItem(LOCAL_STORAGE_GOALS_KEY);
@@ -909,12 +1790,25 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!item) return;
 
     const nextState = !item.is_active;
+
+    // Se estiver tentando reativar e não for Premium, bloqueia no client
+    const currentTier = profile?.plan_tier || 'free';
+    if (nextState && currentTier !== 'premium') {
+      return;
+    }
+
     setRecurringExpenses(prev =>
       prev.map(r => (r.id === id ? { ...r, is_active: nextState } : r))
     );
 
     if (isSupabaseConfigured && !isDemo) {
-      await supabase.from('recurring_expenses').update({ is_active: nextState }).eq('id', id);
+      const { error } = await supabase.from('recurring_expenses').update({ is_active: nextState }).eq('id', id);
+      if (error) {
+        // Reverte estado local se o backend rejeitar
+        setRecurringExpenses(prev =>
+          prev.map(r => (r.id === id ? { ...r, is_active: item.is_active } : r))
+        );
+      }
     } else {
       const stored = localStorage.getItem(LOCAL_STORAGE_RECURRING_KEY);
       if (stored) {
@@ -922,6 +1816,56 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const updated = all.map(r => (r.id === id ? { ...r, is_active: nextState } : r));
         localStorage.setItem(LOCAL_STORAGE_RECURRING_KEY, JSON.stringify(updated));
       }
+    }
+  };
+
+  // Gerenciamento de Notificações
+  const markNotificationAsRead = async (id: string) => {
+    const nowIso = new Date().toISOString();
+    setNotifications(prev =>
+      prev.map(n => (n.id === id ? { ...n, is_read: true, read_at: nowIso } : n))
+    );
+
+    if (isSupabaseConfigured && !isDemo) {
+      await supabase.rpc('mark_notification_read', { p_notification_id: id });
+    } else {
+      const stored = localStorage.getItem(LOCAL_STORAGE_NOTIFS_LIST_KEY);
+      if (stored) {
+        const list: AppNotification[] = JSON.parse(stored);
+        const updated = list.map(n =>
+          n.id === id ? { ...n, is_read: true, read_at: nowIso } : n
+        );
+        localStorage.setItem(LOCAL_STORAGE_NOTIFS_LIST_KEY, JSON.stringify(updated));
+      }
+    }
+  };
+
+  const markAllNotificationsAsRead = async () => {
+    const nowIso = new Date().toISOString();
+    setNotifications(prev => prev.map(n => ({ ...n, is_read: true, read_at: nowIso })));
+
+    if (isSupabaseConfigured && !isDemo) {
+      await supabase.rpc('mark_all_notifications_read');
+    } else {
+      const stored = localStorage.getItem(LOCAL_STORAGE_NOTIFS_LIST_KEY);
+      if (stored) {
+        const list: AppNotification[] = JSON.parse(stored);
+        const updated = list.map(n => ({ ...n, is_read: true, read_at: nowIso }));
+        localStorage.setItem(LOCAL_STORAGE_NOTIFS_LIST_KEY, JSON.stringify(updated));
+      }
+    }
+  };
+
+  const refreshNotifications = async () => {
+    if (!user) return;
+    if (isSupabaseConfigured && !isDemo) {
+      await supabase.rpc('check_financial_alerts');
+      const { data } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+      if (data) setNotifications(data);
     }
   };
 
@@ -939,18 +1883,28 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const prevMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
 
     const thisMonthTx = transactions.filter(t => {
-      const d = new Date(t.created_at);
+      const d = (t.installment_group_id || t.due_date) ? getTransactionDueDate(t) : new Date(t.created_at);
       return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
     });
 
     const prevMonthTx = transactions.filter(t => {
-      const d = new Date(t.created_at);
+      const d = (t.installment_group_id || t.due_date) ? getTransactionDueDate(t) : new Date(t.created_at);
       return d.getMonth() === prevMonth && d.getFullYear() === prevMonthYear;
     });
 
-    const monthlyExpense = thisMonthTx
-      .filter(t => t.type === 'expense')
+    // Despesas do mês corrente: pagas vs pendentes
+    const thisMonthExpenses = thisMonthTx.filter(t => t.type === 'expense');
+    const monthlyPaidExpense = thisMonthExpenses
+      .filter(t => isTransactionPaid(t))
       .reduce((acc, t) => acc + Number(t.amount), 0);
+
+    const monthlyPendingExpense = thisMonthExpenses
+      .filter(t => !isTransactionPaid(t))
+      .reduce((acc, t) => acc + Number(t.amount), 0);
+
+    const totalCommittedMonth = monthlyPaidExpense + monthlyPendingExpense;
+    // O monthlyExpense reflete o que já foi efetivamente pago no mês
+    const monthlyExpense = monthlyPaidExpense;
 
     const monthlyIncome = thisMonthTx
       .filter(t => t.type === 'income')
@@ -962,12 +1916,17 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const expenseComparisonPercentage =
       previousMonthExpense > 0
-        ? Math.round(((monthlyExpense - previousMonthExpense) / previousMonthExpense) * 100)
+        ? Math.round(((totalCommittedMonth - previousMonthExpense) / previousMonthExpense) * 100)
         : 0;
 
     // Today expenses
     const todayStr = now.toISOString().split('T')[0];
-    const todayTx = transactions.filter(t => t.created_at.startsWith(todayStr));
+    const todayTx = transactions.filter(t => {
+      if (t.installment_group_id) {
+        return (t.due_date === todayStr || t.created_at.startsWith(todayStr)) && isTransactionPaid(t);
+      }
+      return t.created_at.startsWith(todayStr);
+    });
     const todayExpense = todayTx
       .filter(t => t.type === 'expense')
       .reduce((acc, t) => acc + Number(t.amount), 0);
@@ -979,7 +1938,10 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     startOfWeek.setDate(now.getDate() - (dayOfWeek - 1));
     startOfWeek.setHours(0, 0, 0, 0);
 
-    const thisWeekTx = transactions.filter(t => new Date(t.created_at) >= startOfWeek);
+    const thisWeekTx = transactions.filter(t => {
+      const d = (t.installment_group_id || t.due_date) ? getTransactionDueDate(t) : new Date(t.created_at);
+      return d >= startOfWeek;
+    });
     const thisWeekExpense = thisWeekTx
       .filter(t => t.type === 'expense')
       .reduce((acc, t) => acc + Number(t.amount), 0);
@@ -999,12 +1961,46 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       Math.round((weeklySavedAmount / (weeklyTarget || 1)) * 100)
     );
 
-    // Remaining budget and percentage
-    const remainingBudget = Math.max(0, monthlyBudget - monthlyExpense);
+    // Monthly savings metric
+    const monthlyTarget = weeklyToMonthly(weeklyTarget || 250);
+    const netMonthlySavings = Math.max(
+      0,
+      monthlyIncome > 0
+        ? monthlyIncome - monthlyExpense
+        : monthlyTarget - monthlyExpense * 0.25
+    );
+    const monthlySavedAmount = Math.min(monthlyTarget * 1.5, Math.max(0, netMonthlySavings));
+    const monthlyGoalPercentage = Math.min(
+      100,
+      Math.round((monthlySavedAmount / (monthlyTarget || 1)) * 100)
+    );
+
+    // Remaining budget and percentage considerando o total comprometido (pagas + pendentes a vencer)
+    const remainingBudget = Math.max(0, monthlyBudget - totalCommittedMonth);
     const budgetUsedPercentage = Math.min(
       100,
-      Math.round((monthlyExpense / (monthlyBudget || 1)) * 100)
+      Math.round((totalCommittedMonth / (monthlyBudget || 1)) * 100)
     );
+
+    // Métricas para o período semanal do orçamento
+    const budgetPeriod: 'weekly' | 'monthly' = profile?.budget_period_preference || 'monthly';
+    const weeklyBudget = monthlyToWeekly(monthlyBudget);
+    const weeklyExpense = thisWeekExpense;
+    const weeklyRemainingBudget = Math.max(0, weeklyBudget - weeklyExpense);
+    const weeklyBudgetUsedPercentage = Math.min(
+      100,
+      Math.round((weeklyExpense / (weeklyBudget || 1)) * 100)
+    );
+
+    // Projeções efetivas sincronizadas com o período principal selecionado
+    const effectiveBudget = budgetPeriod === 'weekly' ? weeklyBudget : monthlyBudget;
+    const effectiveRemainingBudget = budgetPeriod === 'weekly' ? weeklyRemainingBudget : remainingBudget;
+    const effectiveCommitted = budgetPeriod === 'weekly' ? weeklyExpense : totalCommittedMonth;
+    const effectiveBudgetUsedPercentage = budgetPeriod === 'weekly' ? weeklyBudgetUsedPercentage : budgetUsedPercentage;
+
+    const effectiveSavedAmount = budgetPeriod === 'weekly' ? weeklySavedAmount : monthlySavedAmount;
+    const effectiveSavingTarget = budgetPeriod === 'weekly' ? weeklyTarget : monthlyTarget;
+    const effectiveGoalPercentage = budgetPeriod === 'weekly' ? weeklyGoalPercentage : monthlyGoalPercentage;
 
     // Budget alert levels: 80%, 90%, 100%
     let budgetAlertLevel: 'normal' | 'warning_80' | 'warning_90' | 'exceeded_100' = 'normal';
@@ -1027,15 +2023,13 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // Resumo dos gastos por categoria com limites dinâmicos
     const categoryTotals: Record<string, { amount: number; count: number }> = {};
-    thisMonthTx
-      .filter(t => t.type === 'expense')
-      .forEach(t => {
-        if (!categoryTotals[t.category]) {
-          categoryTotals[t.category] = { amount: 0, count: 0 };
-        }
-        categoryTotals[t.category].amount += Number(t.amount);
-        categoryTotals[t.category].count += 1;
-      });
+    thisMonthExpenses.forEach(t => {
+      if (!categoryTotals[t.category]) {
+        categoryTotals[t.category] = { amount: 0, count: 0 };
+      }
+      categoryTotals[t.category].amount += Number(t.amount);
+      categoryTotals[t.category].count += 1;
+    });
 
     const categoryBreakdown: CategorySummary[] = Object.entries(categoryTotals)
       .map(([cat, val]) => {
@@ -1046,7 +2040,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
           icon: '🏷️',
           defaultLimit: 400,
         };
-        const pct = monthlyExpense > 0 ? Math.round((val.amount / monthlyExpense) * 100) : 0;
+        const pct = totalCommittedMonth > 0 ? Math.round((val.amount / totalCommittedMonth) * 100) : 0;
         const catLimit = customCatLimits[cat] || conf.defaultLimit;
         const limitPct = catLimit > 0 ? Math.min(100, Math.round((val.amount / catLimit) * 100)) : 0;
 
@@ -1070,12 +2064,28 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       .sort((a, b) => b.amount - a.amount);
 
     return {
+      budgetPeriod,
       monthlyIncome,
       monthlyExpense,
+      monthlyPendingExpense,
+      totalCommittedMonth,
       remainingBudget,
       budgetUsedPercentage,
+      weeklyBudget,
+      weeklyExpense,
+      weeklyRemainingBudget,
+      weeklyBudgetUsedPercentage,
+      effectiveBudget,
+      effectiveRemainingBudget,
+      effectiveCommitted,
+      effectiveBudgetUsedPercentage,
+      effectiveSavedAmount,
+      effectiveSavingTarget,
+      effectiveGoalPercentage,
       weeklySavedAmount,
       weeklyGoalPercentage,
+      monthlySavedAmount,
+      monthlyGoalPercentage,
       todayExpense,
       todayTransactionsCount,
       totalTransactionsCount: transactions.length,
@@ -1089,6 +2099,99 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
   }, [transactions, profile, goals, customCatLimits]);
 
+  // Inteligência Financeira: Compromissos Futuros (próximos 12 meses)
+  const futureCommitments: FutureCommitmentsSummary = useMemo(() => {
+    // 1. Grupos únicos de parcelas
+    const groupIds = Array.from(
+      new Set(
+        transactions
+          .filter(t => Boolean(t.installment_group_id))
+          .map(t => t.installment_group_id as string)
+      )
+    );
+
+    const groups: InstallmentGroupSummary[] = groupIds
+      .map(id => getInstallmentGroup(id))
+      .filter((g): g is InstallmentGroupSummary => Boolean(g));
+
+    const activeGroups = groups.filter(g => g.status === 'in_progress');
+
+    // 2. Projeção dos próximos 12 meses
+    const now = new Date();
+    const monthlyForecast: FutureCommitmentMonth[] = [];
+
+    for (let i = 0; i < 12; i++) {
+      const forecastDate = new Date(now.getFullYear(), now.getMonth() + i, 1);
+      const targetYear = forecastDate.getFullYear();
+      const targetMonth = forecastDate.getMonth();
+      const monthKey = `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}`;
+      const monthLabel = formatMonthYear(forecastDate);
+
+      // Todas as transações de despesa parcelada cujo vencimento cai neste mês
+      const monthInstallments = transactions.filter(t => {
+        if (!t.installment_group_id || t.type !== 'expense') return false;
+        const dueDate = getTransactionDueDate(t);
+        return dueDate.getFullYear() === targetYear && dueDate.getMonth() === targetMonth;
+      });
+
+      const totalCommitted = monthInstallments.reduce((acc, t) => acc + Number(t.amount), 0);
+      const totalPaid = monthInstallments
+        .filter(t => isTransactionPaid(t))
+        .reduce((acc, t) => acc + Number(t.amount), 0);
+      const totalPending = monthInstallments
+        .filter(t => !isTransactionPaid(t))
+        .reduce((acc, t) => acc + Number(t.amount), 0);
+
+      monthlyForecast.push({
+        monthKey,
+        monthLabel,
+        year: targetYear,
+        monthIndex: targetMonth,
+        totalCommitted,
+        totalPaid,
+        totalPending,
+        installmentsCount: monthInstallments.length,
+        transactions: monthInstallments.sort((a, b) => {
+          const da = getTransactionDueDate(a).getTime();
+          const db = getTransactionDueDate(b).getTime();
+          return da - db;
+        }),
+      });
+    }
+
+    // 3. Totais globais
+    const allInstallmentExpenses = transactions.filter(
+      t => Boolean(t.installment_group_id) && t.type === 'expense'
+    );
+
+    const totalPendingPayment = allInstallmentExpenses
+      .filter(t => !isTransactionPaid(t))
+      .reduce((acc, t) => acc + Number(t.amount), 0);
+
+    const totalPaidPayment = allInstallmentExpenses
+      .filter(t => isTransactionPaid(t))
+      .reduce((acc, t) => acc + Number(t.amount), 0);
+
+    const remainingInstallmentsCount = allInstallmentExpenses.filter(
+      t => !isTransactionPaid(t)
+    ).length;
+
+    const totalCommittedInInstallments = activeGroups.reduce(
+      (acc, g) => acc + g.totalAmount,
+      0
+    );
+
+    return {
+      totalCommittedInInstallments,
+      totalPendingPayment,
+      totalPaidPayment,
+      remainingInstallmentsCount,
+      activePurchasesCount: activeGroups.length,
+      monthlyForecast,
+      activeGroups,
+    };
+  }, [transactions]);
+
   return (
     <FinanceContext.Provider
       value={{
@@ -1097,11 +2200,16 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         goalContributions,
         recurringExpenses,
         stats,
+        futureCommitments,
         loading,
         addTransaction,
         addInstallmentExpense,
+        importInstallmentPurchases,
+        importPdfInvoicePurchases,
         updateTransaction,
         deleteTransaction,
+        toggleInstallmentPaid,
+        getInstallmentGroup,
         addSavingsGoal,
         updateSavingsGoal,
         contributeToGoal,
@@ -1112,6 +2220,11 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         addRecurringExpense,
         deleteRecurringExpense,
         toggleRecurringExpense,
+        notifications,
+        unreadNotificationsCount,
+        markNotificationAsRead,
+        markAllNotificationsAsRead,
+        refreshNotifications,
         refreshData: loadData,
       }}
     >

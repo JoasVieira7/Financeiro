@@ -262,7 +262,7 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
           </button>
 
           <h3 className="text-base font-extrabold text-slate-900 tracking-tight">
-            {editingTransaction ? 'Editar Lançamento' : 'Lançamento Express'}
+            {editingTransaction ? 'Editar Lançamento' : 'Novo Lançamento'}
           </h3>
 
           {editingTransaction ? (
@@ -421,13 +421,13 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
               <button
                 type="button"
                 onClick={() => setPaymentType('spot')}
-                className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all cursor-pointer ${
+                className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
                   paymentType === 'spot'
                     ? 'bg-white text-slate-900 shadow-xs'
                     : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
-                À vista
+                Compra à vista
               </button>
               <button
                 type="button"
@@ -435,13 +435,13 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
                   setPaymentType('installment');
                   if (paymentMethod === 'pix') setPaymentMethod('cartao_credito');
                 }}
-                className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all cursor-pointer ${
+                className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
                   paymentType === 'installment'
                     ? 'bg-[#00D26A] text-white shadow-xs'
                     : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
-                Parcelado
+                Compra parcelada
               </button>
             </div>
           </div>
@@ -512,7 +512,7 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
                 type="date"
                 value={firstInstallmentDate}
                 onChange={e => setFirstInstallmentDate(e.target.value)}
-                className="text-xs font-semibold px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white text-slate-800 focus:outline-none focus:border-[#00D26A]"
+                className="text-base sm:text-xs font-semibold px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white text-slate-800 focus:outline-none focus:border-[#00D26A]"
               />
             </div>
 
@@ -565,7 +565,7 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
               value={description}
               onChange={e => setDescription(e.target.value)}
               placeholder="Estabelecimento ou detalhe (ex: Atacadão, Uber, Padaria)"
-              className="w-full h-11 px-4 text-xs font-semibold text-slate-800 placeholder:text-slate-400 placeholder:font-normal bg-slate-50 border border-slate-200/90 rounded-2xl focus:outline-none focus:border-[#00D26A] focus:bg-white transition-all shadow-2xs"
+              className="w-full h-11 px-4 text-base sm:text-xs font-semibold text-slate-800 placeholder:text-slate-400 placeholder:font-normal bg-slate-50 border border-slate-200/90 rounded-2xl focus:outline-none focus:border-[#00D26A] focus:bg-white transition-all shadow-2xs"
               maxLength={60}
             />
             {description && (
@@ -677,12 +677,10 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
               {editingTransaction
                 ? 'Salvar Alterações'
                 : txType === 'income'
-                ? 'Registrar Receita'
+                ? 'Registrar receita'
                 : paymentType === 'installment'
-                ? `Registrar ${numInstallments}x de ${formatCurrency(installmentVal)}`
-                : paymentMethod === 'pix'
-                ? 'Registrar Pix'
-                : `Registrar ${selectedCategory}`}
+                ? `Registrar compra (${numInstallments}x de ${formatCurrency(installmentVal)})`
+                : 'Registrar gasto'}
             </span>
           )}
         </button>
