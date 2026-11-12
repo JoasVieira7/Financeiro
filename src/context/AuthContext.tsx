@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { UserProfile, SubscriptionStatus } from '../types';
 import { DEMO_USERS } from '../lib/demoStorage';
+import { unsubscribeUserFromPush } from '../lib/pushNotifications';
 
 interface AuthContextType {
   user: { id: string; email: string } | null;
@@ -336,6 +337,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signOut = async () => {
+    if (user?.id) {
+      // SEC-02: Desinscreve o endpoint push do dispositivo atual para não receber notificações de terceiros
+      try {
+        await unsubscribeUserFromPush(user.id);
+      } catch (e) {
+        console.warn('Erro ao desinscrever push no logout:', e);
+      }
+    }
+
     if (isSupabaseConfigured && !isDemo) {
       try {
         await supabase.auth.signOut();

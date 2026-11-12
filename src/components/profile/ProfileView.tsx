@@ -16,6 +16,7 @@ import {
   isWebPushSupported,
   getNotificationPermission,
   requestPushPermission,
+  subscribeUserToPush,
   type PushPermissionStatus,
 } from '../../lib/pushNotifications';
 import {
@@ -262,6 +263,9 @@ export const ProfileView: React.FC<ProfileViewProps> = () => {
     setIsRequestingPush(false);
     if (result === 'granted') {
       setNotificationsEnabled(true);
+      if (user?.id) {
+        await subscribeUserToPush(user.id);
+      }
     }
   };
 

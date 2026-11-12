@@ -19,6 +19,19 @@ export interface GeneratedInvoiceAlert {
   shouldPush: boolean;
 }
 
+/**
+ * SEC-03: Função canônica de geração da chave de deduplicação idempotente.
+ * Formato padrão oficial: invoice_${alertType}_${transactionId}_${dueDateStr}
+ */
+export function buildInvoiceDedupKey(
+  alertType: string,
+  transactionId: string,
+  dueDateStr: string
+): string {
+  const normDate = dueDateStr.substring(0, 10);
+  return `invoice_${alertType}_${transactionId}_${normDate}`;
+}
+
 export function generateInvoiceAlerts(
   transactions: Transaction[],
   existingNotifications: AppNotification[],
@@ -82,7 +95,8 @@ export function generateInvoiceAlerts(
 
     // 1. Alerta: Vence em 3 dias
     if (diffDays === 3) {
-      const dedupKey = `due_3d_${tx.id}_${dueDateStr}`;
+      const alertType = 'due_3d';
+      const dedupKey = buildInvoiceDedupKey(alertType, tx.id, dueDateStr);
       if (!existingDedupKeys.has(dedupKey)) {
         alerts.push({
           notification: {
@@ -98,7 +112,7 @@ export function generateInvoiceAlerts(
               transaction_id: tx.id,
               due_date: dueDateStr,
               amount: Number(tx.amount),
-              alert_type: 'due_3d',
+              alert_type: alertType,
             },
           },
           shouldPush: true,
@@ -108,7 +122,8 @@ export function generateInvoiceAlerts(
 
     // 2. Alerta: Vence amanhã (1 dia antes)
     if (diffDays === 1) {
-      const dedupKey = `due_1d_${tx.id}_${dueDateStr}`;
+      const alertType = 'due_1d';
+      const dedupKey = buildInvoiceDedupKey(alertType, tx.id, dueDateStr);
       if (!existingDedupKeys.has(dedupKey)) {
         alerts.push({
           notification: {
@@ -124,7 +139,7 @@ export function generateInvoiceAlerts(
               transaction_id: tx.id,
               due_date: dueDateStr,
               amount: Number(tx.amount),
-              alert_type: 'due_1d',
+              alert_type: alertType,
             },
           },
           shouldPush: true,
@@ -134,7 +149,8 @@ export function generateInvoiceAlerts(
 
     // 3. Alerta: Vence hoje (dia do vencimento)
     if (diffDays === 0) {
-      const dedupKey = `due_today_${tx.id}_${dueDateStr}`;
+      const alertType = 'due_today';
+      const dedupKey = buildInvoiceDedupKey(alertType, tx.id, dueDateStr);
       if (!existingDedupKeys.has(dedupKey)) {
         alerts.push({
           notification: {
@@ -150,7 +166,7 @@ export function generateInvoiceAlerts(
               transaction_id: tx.id,
               due_date: dueDateStr,
               amount: Number(tx.amount),
-              alert_type: 'due_today',
+              alert_type: alertType,
             },
           },
           shouldPush: true,
@@ -163,7 +179,8 @@ export function generateInvoiceAlerts(
       const pastDays = Math.abs(diffDays);
       // Alerta semanal de atraso para não inundar o usuário (dias 1, 3, 7, 15)
       if (pastDays === 1 || pastDays === 3 || pastDays === 7 || pastDays === 15) {
-        const dedupKey = `overdue_${pastDays}d_${tx.id}_${dueDateStr}`;
+        const alertType = `overdue_${pastDays}d`;
+        const dedupKey = buildInvoiceDedupKey(alertType, tx.id, dueDateStr);
         if (!existingDedupKeys.has(dedupKey)) {
           alerts.push({
             notification: {
@@ -180,7 +197,7 @@ export function generateInvoiceAlerts(
                 due_date: dueDateStr,
                 amount: Number(tx.amount),
                 days_overdue: pastDays,
-                alert_type: 'overdue',
+                alert_type: alertType,
               },
             },
             shouldPush: true,
