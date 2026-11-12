@@ -67,6 +67,71 @@ export function inferCategory(description: string): TransactionCategory {
   return 'Compras';
 }
 
+// Mapeamento de categorias de extratos e faturas de bancos (ex: Nubank, Inter, Itaú, etc.)
+export function mapBankCategory(cat: string): TransactionCategory {
+  const c = cat.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+  if (/alimenta|restaurante|mercado|supermercado|comida|lanche|padaria|ifood|acougue|cafe/.test(c)) return 'Alimentação';
+  if (/transporte|uber|99|taxi|combustivel|posto|estacionamento|pedagio|viagem|passagem|metro|onibus|aerea/.test(c)) return 'Transporte';
+  if (/saude|farmacia|drogaria|hospital|consulta|exame|dentista|medico|remedio/.test(c)) return 'Saúde';
+  if (/casa|moradia|habitacao|luz|agua|energia|gas|aluguel|condominio|iptu/.test(c)) return 'Moradia';
+  if (/lazer|entretenimento|streaming|netflix|spotify|cinema|show|hotel|academia|viagem/.test(c)) return 'Lazer';
+  if (/educacao|curso|escola|faculdade|livros|livraria/.test(c)) return 'Contas';
+  if (/servicos|contas|pagamento|telecom|internet|celular|vivo|claro|tim/.test(c)) return 'Contas';
+  return 'Compras';
+}
+
+export interface ExtractedInstallment {
+  isInstallment: boolean;
+  currentInstallment: number;
+  totalInstallments: number;
+  cleanText: string;
+}
+
+// Extrai informações de parcelamento a partir do texto da descrição (ex: Nubank "Item - Parcela 1/5", "Item (02/10)")
+export function extractInstallmentInfoFromText(text: string): ExtractedInstallment {
+  const patterns: RegExp[] = [
+    // 1. "Parcela X/Y" ou "Parcela X de Y"
+    /\b(?:parcela|parc\.?)\s*(\d{1,2})\s*(?:\/|\s*de\s*|\-)\s*(\d{1,2})\b/i,
+    // 2. Formato entre parênteses: "(02/10)" ou "(2/8)"
+    /\((\d{1,2})\s*[\/\-]\s*(\d{1,2})\)/,
+    // 3. Formato com prefixo P: "P02/10" ou "P2/8"
+    /\bP(\d{1,2})\s*[\/\-]\s*(\d{1,2})\b/i,
+    // 4. Formato PARC XX/YY
+    /\bPARC\s*(\d{1,2})\s*[\/\-]\s*(\d{1,2})\b/i,
+    // 5. Formato com hífen ou espaço: " - 02/08 " ou " 02/10 "
+    /(?:[\-\s])(\d{1,2})\s*[\/]\s*(\d{1,2})(?:[\s]|$)/,
+  ];
+
+  for (const regex of patterns) {
+    const match = text.match(regex);
+    if (match) {
+      const cur = parseInt(match[1], 10);
+      const total = parseInt(match[2], 10);
+
+      if (total > 1 && cur >= 1 && cur <= total) {
+        const cleanText = text
+          .replace(match[0], ' ')
+          .replace(/\s+/g, ' ')
+          .replace(/[\s\-_]+$/, '')
+          .trim();
+        return {
+          isInstallment: true,
+          currentInstallment: cur,
+          totalInstallments: total,
+          cleanText: cleanText || text,
+        };
+      }
+    }
+  }
+
+  return {
+    isInstallment: false,
+    currentInstallment: 1,
+    totalInstallments: 1,
+    cleanText: text.trim(),
+  };
+}
+
 // Normaliza strings para comparação flexível de cabeçalhos
 function normalizeHeader(str: string): string {
   return str
@@ -77,15 +142,23 @@ function normalizeHeader(str: string): string {
     .trim();
 }
 
-// Identifica coluna pelo nome
+// Identifica coluna pelo nome (priorizando correspondência exata antes de substring)
 function findColumnIndex(headers: string[], candidates: string[]): number {
+  const normalizedHeaders = headers.map(h => normalizeHeader(h || ''));
   const normalizedCandidates = candidates.map(normalizeHeader);
-  for (let i = 0; i < headers.length; i++) {
-    const norm = normalizeHeader(headers[i] || '');
-    if (normalizedCandidates.some(c => norm.includes(c) || c.includes(norm))) {
-      return i;
-    }
+
+  // 1. Prioridade para match exato
+  for (const cand of normalizedCandidates) {
+    const exactIdx = normalizedHeaders.findIndex(h => h === cand);
+    if (exactIdx !== -1) return exactIdx;
   }
+
+  // 2. Fallback para substring
+  for (const cand of normalizedCandidates) {
+    const subIdx = normalizedHeaders.findIndex(h => h.includes(cand) || cand.includes(h));
+    if (subIdx !== -1) return subIdx;
+  }
+
   return -1;
 }
 
@@ -214,10 +287,10 @@ export function parseInstallmentFile(
 
   try {
     if (isCsv) {
-      // Lê CSV como string decodificada UTF-8
+      // Lê CSV como string decodificada UTF-8 com raw: true para preservar strings e formatos originais
       const decoder = new TextDecoder('utf-8');
       const csvText = decoder.decode(fileBuffer);
-      workbook = XLSX.read(csvText, { type: 'string', cellDates: true });
+      workbook = XLSX.read(csvText, { type: 'string', raw: true });
     } else {
       workbook = XLSX.read(new Uint8Array(fileBuffer), { type: 'array', cellDates: true });
     }
@@ -322,14 +395,14 @@ export function parseInstallmentFile(
     };
   }
 
-  // Localiza a linha do cabeçalho
+  // Localiza a linha do cabeçalho (suporta planilhas tradicionais e CSVs bancários como Nubank)
   let headerRowIndex = -1;
   for (let i = 0; i < Math.min(rows.length, 10); i++) {
     const row = rows[i] || [];
     const joined = row.map((c: any) => normalizeHeader(String(c))).join(' ');
     if (
-      (joined.includes('descricao') || joined.includes('compra')) &&
-      (joined.includes('parcela') || joined.includes('valor'))
+      (joined.includes('descricao') || joined.includes('compra') || joined.includes('title') || joined.includes('historico') || joined.includes('item')) &&
+      (joined.includes('parcela') || joined.includes('valor') || joined.includes('amount') || joined.includes('total'))
     ) {
       headerRowIndex = i;
       break;
@@ -343,17 +416,41 @@ export function parseInstallmentFile(
 
   const headers = (rows[headerRowIndex] || []).map((c: any) => String(c).trim());
 
-  // Mapeamento das colunas da planilha de referência:
-  // DATA COMPRA | DESCRIÇÃO | VALOR TOTAL | CARTÃO UTILIZADO | TOTAL PARCELAS | PARCELA ATUAL | VALOR PARCELA | DATA PAGAMENTO | STATUS
-  const colDateCompra = findColumnIndex(headers, ['data compra', 'data da compra', 'datacompra', 'dt compra']);
-  const colDescricao = findColumnIndex(headers, ['descricao', 'descrição', 'estabelecimento', 'item', 'historico', 'histórico', 'detalhe', 'loja']);
-  const colValorTotal = findColumnIndex(headers, ['valor total', 'valortotal', 'total']);
-  const colCartao = findColumnIndex(headers, ['cartao utilizado', 'cartão utilizado', 'cartao', 'cartão']);
-  const colTotalParcelas = findColumnIndex(headers, ['total parcelas', 'totalparcelas', 'qtd parcelas', 'quantidade de parcelas', 'total de parcelas', 'parcelas']);
-  const colParcelaAtual = findColumnIndex(headers, ['parcela atual', 'parcelaatual', 'parcela pendente']);
-  const colValorParcela = findColumnIndex(headers, ['valor parcela', 'valorparcela', 'valor da parcela']);
-  const colDataPagamento = findColumnIndex(headers, ['data pagamento', 'datapagamento', 'data de pagamento', 'vencimento', 'data vencimento', 'dt pagamento']);
-  const colStatus = findColumnIndex(headers, ['status', 'situacao', 'situação']);
+  // Mapeamento flexível das colunas (compatível com planilhas de parcelamento e extratos bancários / faturas CSV Nubank, Inter, Itaú, etc.):
+  const colDateCompra = findColumnIndex(headers, [
+    'data compra', 'data da compra', 'datacompra', 'dt compra', 'data', 'date', 'dt'
+  ]);
+  const colDescricao = findColumnIndex(headers, [
+    'descricao', 'descrição', 'title', 'titulo', 'título', 'estabelecimento', 'item', 'historico', 'histórico', 'detalhe', 'loja', 'memo', 'name'
+  ]);
+  const colValorTotal = findColumnIndex(headers, [
+    'valor total', 'valortotal', 'total', 'amount', 'valor', 'vlr'
+  ]);
+  const colCartao = findColumnIndex(headers, [
+    'cartao utilizado', 'cartão utilizado', 'cartao', 'cartão', 'card', 'conta', 'banco'
+  ]);
+  const colTotalParcelas = findColumnIndex(headers, [
+    'total parcelas', 'totalparcelas', 'qtd parcelas', 'quantidade de parcelas', 'total de parcelas', 'parcelas'
+  ]);
+  const colParcelaAtual = findColumnIndex(headers, [
+    'parcela atual', 'parcelaatual', 'parcela pendente'
+  ]);
+  const colValorParcela = findColumnIndex(headers, [
+    'valor parcela', 'valorparcela', 'valor da parcela'
+  ]);
+  const colDataPagamento = findColumnIndex(headers, [
+    'data pagamento', 'datapagamento', 'data de pagamento', 'vencimento', 'data vencimento', 'dt pagamento', 'due date', 'duedate'
+  ]);
+  const colStatus = findColumnIndex(headers, [
+    'status', 'situacao', 'situação'
+  ]);
+  const colCategoria = findColumnIndex(headers, [
+    'category', 'categoria'
+  ]);
+
+  const isNubank = fileName.toLowerCase().includes('nubank') ||
+    (headers.includes('title') && headers.includes('amount')) ||
+    (headers.includes('category') && headers.includes('title'));
 
   const todayStr = new Date().toISOString().split('T')[0];
   const parsedPurchases: ParsedInstallmentPurchase[] = [];
@@ -370,35 +467,55 @@ export function parseInstallmentFile(
 
     const validationErrors: string[] = [];
 
-    // 1. Descrição
+    // 1. Descrição e verificação de pagamentos de fatura
     const rawDesc = colDescricao !== -1 ? String(row[colDescricao] || '').trim() : '';
+    const parsedAmount = colValorTotal !== -1 ? parseMonetaryValue(row[colValorTotal]) : 0;
+
+    // Ignora pagamentos de fatura (ex: "Pagamento recebido" no Nubank com valor negativo):
+    // Não devem ser importados como compras para evitar inflar custos indevidamente
+    const isInvoicePayment =
+      /pagamento\s+recebido|pagamento\s+de\s+fatura|pagto\s+fatura|pgto\s+fatura|pagamento\s+efetuado/i.test(rawDesc) ||
+      (isNubank && /pagamento/i.test(rawDesc) && parsedAmount < 0);
+    if (isInvoicePayment) {
+      continue;
+    }
+
     if (!rawDesc) {
       validationErrors.push('Descrição não informada');
     }
 
     // 2. Valor Total (arredondado para centavos)
-    const rawTotal = colValorTotal !== -1 ? roundToCents(parseMonetaryValue(row[colValorTotal])) : 0;
+    let rawTotal = roundToCents(Math.abs(parsedAmount));
     if (rawTotal <= 0) {
       validationErrors.push('Valor total deve ser maior que zero');
     }
 
-    // 3. Cartão
-    const rawCard = colCartao !== -1 ? String(row[colCartao] || '').trim() : 'Cartão de Crédito';
-    if (rawCard) {
-      cardsSet.add(rawCard);
-    } else {
-      validationErrors.push('Cartão não identificado');
+    // 3. Cartão (reconhece Nubank automaticamente se ausente na coluna)
+    let rawCard = colCartao !== -1 ? String(row[colCartao] || '').trim() : '';
+    if (!rawCard) {
+      rawCard = isNubank ? 'Nubank' : 'Cartão de Crédito';
+    }
+    cardsSet.add(rawCard);
+
+    // 4 e 5. Parcelas (com extração inteligente de "Parcela X/Y" do título se não houver coluna própria)
+    let totalParcelas = colTotalParcelas !== -1 ? parseInt(String(row[colTotalParcelas]), 10) : 1;
+    let parcelaAtual = colParcelaAtual !== -1 ? parseInt(String(row[colParcelaAtual]), 10) : 1;
+    let cleanDesc = rawDesc;
+
+    if (colTotalParcelas === -1) {
+      const instInfo = extractInstallmentInfoFromText(rawDesc);
+      if (instInfo.isInstallment) {
+        totalParcelas = instInfo.totalInstallments;
+        parcelaAtual = instInfo.currentInstallment;
+        cleanDesc = instInfo.cleanText;
+      }
     }
 
-    // 4. Total de parcelas
-    let totalParcelas = colTotalParcelas !== -1 ? parseInt(String(row[colTotalParcelas]), 10) : 1;
     if (isNaN(totalParcelas) || totalParcelas < 1) {
       validationErrors.push('Quantidade total de parcelas inválida');
       totalParcelas = 1;
     }
 
-    // 5. Parcela atual pendente
-    let parcelaAtual = colParcelaAtual !== -1 ? parseInt(String(row[colParcelaAtual]), 10) : 1;
     if (isNaN(parcelaAtual) || parcelaAtual < 1) {
       validationErrors.push('Parcela atual inválida');
       parcelaAtual = 1;
@@ -409,9 +526,13 @@ export function parseInstallmentFile(
     // 6. Cálculo das parcelas pendentes: totalParcelas - parcelaAtual + 1
     const pendingInstallmentsCount = Math.max(0, totalParcelas - parcelaAtual + 1);
 
-    // 7. Valor da parcela (respeita o valor original da planilha arredondado para centavos)
+    // 7. Valor da parcela
     let valorParcela = colValorParcela !== -1 ? roundToCents(parseMonetaryValue(row[colValorParcela])) : 0;
-    if (valorParcela <= 0 && rawTotal > 0 && totalParcelas > 0) {
+    if (colTotalParcelas === -1 && totalParcelas > 1) {
+      // No CSV do Nubank, o valor informado na linha é o valor da parcela mensal
+      valorParcela = rawTotal;
+      rawTotal = roundToCents(valorParcela * totalParcelas);
+    } else if (valorParcela <= 0 && rawTotal > 0 && totalParcelas > 0) {
       valorParcela = roundToCents(rawTotal / totalParcelas);
     }
 
@@ -426,15 +547,20 @@ export function parseInstallmentFile(
     // 8. Data da Compra
     let purchaseDate = colDateCompra !== -1 ? parseDateToIsoDate(row[colDateCompra]) : null;
     if (!purchaseDate) {
-      // Se não houver data de compra, usa a data do vencimento ou hoje
       purchaseDate = todayStr;
     }
 
     // 9. Data de Pagamento / Vencimento da fatura
     let dueDate = colDataPagamento !== -1 ? parseDateToIsoDate(row[colDataPagamento]) : null;
     if (!dueDate) {
-      validationErrors.push('Data de vencimento da fatura inválida ou não informada');
-      dueDate = todayStr;
+      // Se o arquivo não tiver coluna de vencimento separada (como o CSV do Nubank),
+      // assume a data da compra como data de referência e NÃO dispara erro de validação
+      if (colDataPagamento === -1 && purchaseDate) {
+        dueDate = purchaseDate;
+      } else {
+        validationErrors.push('Data de vencimento da fatura inválida ou não informada');
+        dueDate = todayStr;
+      }
     }
 
     // 10. Status da planilha
@@ -442,6 +568,14 @@ export function parseInstallmentFile(
 
     // 11. Detecção de vencimento no passado
     const isPastDueDate = Boolean(dueDate && dueDate < todayStr);
+
+    // Categoria: mapeamento inteligente a partir da coluna ou inferência por palavra-chave
+    let category: TransactionCategory;
+    if (colCategoria !== -1 && row[colCategoria]) {
+      category = mapBankCategory(String(row[colCategoria]));
+    } else {
+      category = inferCategory(cleanDesc || rawDesc);
+    }
 
     // 12. Detecção de possíveis duplicidades
     let isDuplicate = false;
@@ -451,7 +585,7 @@ export function parseInstallmentFile(
     const existingMatch = existingTransactions.find(t => {
       if (!t.installment_group_id) return false;
       const descMatch =
-        t.description.toLowerCase().trim() === rawDesc.toLowerCase().trim();
+        t.description.toLowerCase().trim() === (cleanDesc || rawDesc).toLowerCase().trim();
       const amountMatch =
         t.installment_purchase_amount &&
         Math.abs(t.installment_purchase_amount - rawTotal) < 0.05;
@@ -467,7 +601,7 @@ export function parseInstallmentFile(
     // B. Contra itens já processados na mesma planilha
     const duplicateInFile = parsedPurchases.find(
       p =>
-        p.description.toLowerCase().trim() === rawDesc.toLowerCase().trim() &&
+        p.description.toLowerCase().trim() === (cleanDesc || rawDesc).toLowerCase().trim() &&
         Math.abs(p.totalAmount - rawTotal) < 0.05 &&
         p.totalInstallments === totalParcelas &&
         p.cardName.toLowerCase().trim() === rawCard.toLowerCase().trim()
@@ -483,7 +617,7 @@ export function parseInstallmentFile(
     parsedPurchases.push({
       id: `row-${r}-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
       rowNumber: r + 1,
-      description: rawDesc || `Compra linha ${r + 1}`,
+      description: cleanDesc || rawDesc || `Compra linha ${r + 1}`,
       totalAmount: rawTotal,
       cardName: rawCard || 'Cartão de Crédito',
       totalInstallments: totalParcelas,
@@ -493,7 +627,7 @@ export function parseInstallmentFile(
       dueDate,
       purchaseDate,
       statusRaw,
-      category: inferCategory(rawDesc),
+      category,
       isValid,
       validationErrors,
       isPastDueDate,
