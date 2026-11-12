@@ -13,10 +13,12 @@ export interface ParsedInstallmentPurchase {
   currentInstallment: number; // Parcela atual pendente informada na planilha
   pendingInstallmentsCount: number; // total - atual + 1
   installmentAmount: number;
-  dueDate: string; // YYYY-MM-DD da parcela atual
-  purchaseDate: string; // YYYY-MM-DD
+  dueDate: string; // YYYY-MM-DD da fatura (ou vazia caso o CSV não contenha vencimento)
+  purchaseDate: string; // YYYY-MM-DD da realização da compra
   statusRaw: string;
   category: TransactionCategory;
+  isRefund?: boolean; // Verdadeiro se for estorno, crédito ou reembolso
+  hasOriginalDueDate?: boolean; // Indica se a data de vencimento veio do arquivo original
   isValid: boolean;
   validationErrors: string[];
   isPastDueDate: boolean;
@@ -40,6 +42,12 @@ export interface ParseResult {
   totalPendingAmount: number;
   identifiedCards: string[];
   purchases: ParsedInstallmentPurchase[];
+  hasMissingDueDates?: boolean;
+  suggestedReferencePeriod?: {
+    year: number;
+    month: number;
+    dueDay: number;
+  };
   parseError?: string;
 }
 
@@ -153,9 +161,10 @@ function findColumnIndex(headers: string[], candidates: string[]): number {
     if (exactIdx !== -1) return exactIdx;
   }
 
-  // 2. Fallback para substring
+  // 2. Fallback para substring (apenas se o cabeçalho contiver o candidato, com tamanho mínimo de 3 caracteres)
   for (const cand of normalizedCandidates) {
-    const subIdx = normalizedHeaders.findIndex(h => h.includes(cand) || cand.includes(h));
+    if (!cand || cand.length < 3) continue;
+    const subIdx = normalizedHeaders.findIndex(h => h && h.length >= 3 && h.includes(cand));
     if (subIdx !== -1) return subIdx;
   }
 
@@ -289,7 +298,11 @@ export function parseInstallmentFile(
     if (isCsv) {
       // Lê CSV como string decodificada UTF-8 com raw: true para preservar strings e formatos originais
       const decoder = new TextDecoder('utf-8');
-      const csvText = decoder.decode(fileBuffer);
+      let csvText = decoder.decode(fileBuffer);
+      // Remove BOM (Byte Order Mark) se presente para evitar caracteres espúrios no primeiro cabeçalho
+      if (csvText.charCodeAt(0) === 0xFEFF) {
+        csvText = csvText.slice(1);
+      }
       workbook = XLSX.read(csvText, { type: 'string', raw: true });
     } else {
       workbook = XLSX.read(new Uint8Array(fileBuffer), { type: 'array', cellDates: true });
@@ -395,22 +408,66 @@ export function parseInstallmentFile(
     };
   }
 
-  // Localiza a linha do cabeçalho (suporta planilhas tradicionais e CSVs bancários como Nubank)
+  // Defesa em profundidade: se o CSV tiver sido lido em coluna única (delimitador não detectado automaticamente)
+  if (isCsv && rows.length > 0 && rows[0] && rows[0].length === 1) {
+    const sampleLine = String(rows[0][0] || '');
+    const delim = sampleLine.includes(';') ? ';' : sampleLine.includes('\t') ? '\t' : sampleLine.includes(',') ? ',' : null;
+    if (delim) {
+      for (let i = 0; i < rows.length; i++) {
+        if (rows[i] && rows[i].length === 1) {
+          rows[i] = String(rows[i][0])
+            .split(delim)
+            .map(s => s.trim().replace(/^["']|["']$/g, ''));
+        }
+      }
+    }
+  }
+
+  // Localiza a linha do cabeçalho com pontuação inteligente (evita confundir linhas de dados com cabeçalho)
   let headerRowIndex = -1;
+  let bestHeaderScore = -1;
+
   for (let i = 0; i < Math.min(rows.length, 10); i++) {
     const row = rows[i] || [];
-    const joined = row.map((c: any) => normalizeHeader(String(c))).join(' ');
-    if (
-      (joined.includes('descricao') || joined.includes('compra') || joined.includes('title') || joined.includes('historico') || joined.includes('item')) &&
-      (joined.includes('parcela') || joined.includes('valor') || joined.includes('amount') || joined.includes('total'))
-    ) {
+    if (!row || row.length === 0) continue;
+
+    let score = 0;
+    let dataIndicators = 0;
+
+    for (const cell of row) {
+      const raw = String(cell || '').trim();
+      if (!raw) continue;
+
+      // Se a célula contiver formato evidente de data (ex: 2026-10-15 ou 15/10/2026)
+      if (/^\d{1,4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,4}/.test(raw)) {
+        dataIndicators++;
+        continue;
+      }
+      // Se for número puro ou monetário
+      if (/^-?R?\$?\s*\d+([,\.]\d+)?$/.test(raw)) {
+        dataIndicators++;
+        continue;
+      }
+
+      const norm = normalizeHeader(raw);
+      if (!norm) continue;
+
+      // Palavras típicas de colunas de cabeçalho financeiro
+      if (/^(data|date|dt|descricao|desc|title|titulo|historico|item|estabelecimento|detalhe|loja|memo|name|valor|amount|vlr|total|parcela|parcelas|cartao|card|conta|banco|categoria|category|status|situacao|vencimento|pagamento)$/.test(norm)) {
+        score += 2;
+      } else if (/^(datacompra|valortotal|valorparcela|totalparcelas|parcelaatual|datapagamento|datavencimento)$/.test(norm)) {
+        score += 3;
+      }
+    }
+
+    const finalScore = score - (dataIndicators * 5);
+    if (finalScore > bestHeaderScore && finalScore >= 2) {
+      bestHeaderScore = finalScore;
       headerRowIndex = i;
-      break;
     }
   }
 
   if (headerRowIndex === -1) {
-    // Fallback: assume primeira linha como cabeçalho
     headerRowIndex = 0;
   }
 
@@ -448,9 +505,12 @@ export function parseInstallmentFile(
     'category', 'categoria'
   ]);
 
+  const normHeadersSet = new Set(headers.map(h => normalizeHeader(h || '')));
   const isNubank = fileName.toLowerCase().includes('nubank') ||
-    (headers.includes('title') && headers.includes('amount')) ||
-    (headers.includes('category') && headers.includes('title'));
+    (normHeadersSet.has('title') && normHeadersSet.has('amount')) ||
+    (normHeadersSet.has('titulo') && normHeadersSet.has('valor')) ||
+    (normHeadersSet.has('category') && normHeadersSet.has('title')) ||
+    (normHeadersSet.has('categoria') && normHeadersSet.has('titulo'));
 
   const todayStr = new Date().toISOString().split('T')[0];
   const parsedPurchases: ParsedInstallmentPurchase[] = [];
@@ -470,6 +530,7 @@ export function parseInstallmentFile(
     // 1. Descrição e verificação de pagamentos de fatura
     const rawDesc = colDescricao !== -1 ? String(row[colDescricao] || '').trim() : '';
     const parsedAmount = colValorTotal !== -1 ? parseMonetaryValue(row[colValorTotal]) : 0;
+    const isNegative = parsedAmount < 0;
 
     // Ignora pagamentos de fatura (ex: "Pagamento recebido" no Nubank com valor negativo):
     // Não devem ser importados como compras para evitar inflar custos indevidamente
@@ -479,6 +540,9 @@ export function parseInstallmentFile(
     if (isInvoicePayment) {
       continue;
     }
+
+    // Identificação precisa de estornos e reembolsos (preserva valores negativos sem transformá-los em despesas indevidamente)
+    const isRefund = isNegative || /estorno|reembolso|devolucao|cancelamento\s+de\s+compra/i.test(rawDesc);
 
     if (!rawDesc) {
       validationErrors.push('Descrição não informada');
@@ -502,7 +566,11 @@ export function parseInstallmentFile(
     let parcelaAtual = colParcelaAtual !== -1 ? parseInt(String(row[colParcelaAtual]), 10) : 1;
     let cleanDesc = rawDesc;
 
-    if (colTotalParcelas === -1) {
+    if (isRefund) {
+      // Estornos e reembolsos são sempre à vista
+      totalParcelas = 1;
+      parcelaAtual = 1;
+    } else if (colTotalParcelas === -1) {
       const instInfo = extractInstallmentInfoFromText(rawDesc);
       if (instInfo.isInstallment) {
         totalParcelas = instInfo.totalInstallments;
@@ -528,7 +596,9 @@ export function parseInstallmentFile(
 
     // 7. Valor da parcela
     let valorParcela = colValorParcela !== -1 ? roundToCents(parseMonetaryValue(row[colValorParcela])) : 0;
-    if (colTotalParcelas === -1 && totalParcelas > 1) {
+    if (isRefund) {
+      valorParcela = rawTotal;
+    } else if (colTotalParcelas === -1 && totalParcelas > 1) {
       // No CSV do Nubank, o valor informado na linha é o valor da parcela mensal
       valorParcela = rawTotal;
       rawTotal = roundToCents(valorParcela * totalParcelas);
@@ -539,12 +609,12 @@ export function parseInstallmentFile(
     // Auditoria de divergência entre valor total e parcelas
     const expectedTotalFromParcelas = roundToCents(valorParcela * totalParcelas);
     const diff = Math.abs(rawTotal - expectedTotalFromParcelas);
-    const hasDivergence = valorParcela > 0 && totalParcelas > 0 && rawTotal > 0 && diff > (0.05 * totalParcelas);
+    const hasDivergence = !isRefund && valorParcela > 0 && totalParcelas > 0 && rawTotal > 0 && diff > (0.05 * totalParcelas);
     const divergenceWarning = hasDivergence
       ? `Divergência detectada: ${totalParcelas}x de R$ ${valorParcela.toFixed(2)} = R$ ${expectedTotalFromParcelas.toFixed(2)}, diferente do total informado (R$ ${rawTotal.toFixed(2)}).`
       : undefined;
 
-    // 8. Data da Compra
+    // 8. Data da Compra (momento real em que o lançamento foi realizado)
     let purchaseDate = colDateCompra !== -1 ? parseDateToIsoDate(row[colDateCompra]) : null;
     if (!purchaseDate) {
       purchaseDate = todayStr;
@@ -552,14 +622,15 @@ export function parseInstallmentFile(
 
     // 9. Data de Pagamento / Vencimento da fatura
     let dueDate = colDataPagamento !== -1 ? parseDateToIsoDate(row[colDataPagamento]) : null;
+    let hasOriginalDueDate = Boolean(dueDate);
+
     if (!dueDate) {
-      // Se o arquivo não tiver coluna de vencimento separada (como o CSV do Nubank),
-      // assume a data da compra como data de referência e NÃO dispara erro de validação
-      if (colDataPagamento === -1 && purchaseDate) {
-        dueDate = purchaseDate;
-      } else {
-        validationErrors.push('Data de vencimento da fatura inválida ou não informada');
-        dueDate = todayStr;
+      // REGRA OBRIGATÓRIA: A data da compra NUNCA deve ser considerada automaticamente como vencimento da fatura.
+      // Quando o arquivo não possui coluna de vencimento (ex: CSV do Nubank), o campo fica vazio
+      // e o sistema solicita explicitamente ao usuário a confirmação do vencimento da fatura antes da importação.
+      dueDate = '';
+      if (colDataPagamento !== -1) {
+        validationErrors.push('Data de vencimento da fatura inválida');
       }
     }
 
@@ -583,19 +654,21 @@ export function parseInstallmentFile(
 
     // A. Contra compras já cadastradas no sistema
     const existingMatch = existingTransactions.find(t => {
-      if (!t.installment_group_id) return false;
       const descMatch =
         t.description.toLowerCase().trim() === (cleanDesc || rawDesc).toLowerCase().trim();
       const amountMatch =
-        t.installment_purchase_amount &&
-        Math.abs(t.installment_purchase_amount - rawTotal) < 0.05;
-      const totalMatch = t.installment_total === totalParcelas;
-      return descMatch && (amountMatch || totalMatch);
+        Math.abs(t.amount - (valorParcela || rawTotal)) < 0.05 ||
+        (t.installment_purchase_amount &&
+          Math.abs(t.installment_purchase_amount - rawTotal) < 0.05);
+      const dateMatch =
+        (t.purchase_date && t.purchase_date.startsWith(purchaseDate)) ||
+        (t.created_at && t.created_at.startsWith(purchaseDate));
+      return descMatch && amountMatch && dateMatch;
     });
 
     if (existingMatch) {
       isDuplicate = true;
-      duplicateReason = `Possível duplicata de compra já cadastrada ("${existingMatch.description}", ${existingMatch.installment_total}x).`;
+      duplicateReason = `Possível duplicata de transação já cadastrada ("${existingMatch.description}", R$ ${(valorParcela || rawTotal).toFixed(2)}, em ${purchaseDate}).`;
     }
 
     // B. Contra itens já processados na mesma planilha
@@ -603,6 +676,7 @@ export function parseInstallmentFile(
       p =>
         p.description.toLowerCase().trim() === (cleanDesc || rawDesc).toLowerCase().trim() &&
         Math.abs(p.totalAmount - rawTotal) < 0.05 &&
+        p.purchaseDate === purchaseDate &&
         p.totalInstallments === totalParcelas &&
         p.cardName.toLowerCase().trim() === rawCard.toLowerCase().trim()
     );
@@ -628,6 +702,8 @@ export function parseInstallmentFile(
       purchaseDate,
       statusRaw,
       category,
+      isRefund,
+      hasOriginalDueDate,
       isValid,
       validationErrors,
       isPastDueDate,
@@ -641,13 +717,42 @@ export function parseInstallmentFile(
   }
 
   const validPurchases = parsedPurchases.filter(p => p.isValid);
-  const totalPurchasesAmount = roundToCents(validPurchases.reduce((acc, p) => acc + p.totalAmount, 0));
-  const totalPendingAmount = roundToCents(
-    validPurchases.reduce(
-      (acc, p) => acc + roundToCents(p.installmentAmount * p.pendingInstallmentsCount),
-      0
-    )
+  const totalPurchasesAmount = roundToCents(
+    validPurchases
+      .filter(p => !p.isRefund)
+      .reduce((acc, p) => acc + p.totalAmount, 0)
   );
+  const totalPendingAmount = roundToCents(
+    validPurchases
+      .filter(p => !p.isRefund)
+      .reduce(
+        (acc, p) => acc + roundToCents(p.installmentAmount * p.pendingInstallmentsCount),
+        0
+      )
+  );
+
+  const hasMissingDueDates = parsedPurchases.some(p => !p.hasOriginalDueDate);
+
+  // Calcula sugestão inteligente de período de competência baseado nas datas das compras
+  let suggestedReferencePeriod: { year: number; month: number; dueDay: number } | undefined;
+  if (parsedPurchases.length > 0) {
+    const monthCounts: Record<string, number> = {};
+    for (const p of parsedPurchases) {
+      if (p.purchaseDate) {
+        const key = p.purchaseDate.substring(0, 7); // YYYY-MM
+        monthCounts[key] = (monthCounts[key] || 0) + 1;
+      }
+    }
+    const topMonthKey = Object.keys(monthCounts).sort((a, b) => monthCounts[b] - monthCounts[a])[0];
+    if (topMonthKey) {
+      const [y, m] = topMonthKey.split('-').map(Number);
+      suggestedReferencePeriod = {
+        year: y,
+        month: m,
+        dueDay: 10,
+      };
+    }
+  }
 
   return {
     fileName,
@@ -662,5 +767,7 @@ export function parseInstallmentFile(
     totalPendingAmount,
     identifiedCards: Array.from(cardsSet),
     purchases: parsedPurchases,
+    hasMissingDueDates,
+    suggestedReferencePeriod,
   };
 }

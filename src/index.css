@@ -11,12 +11,19 @@
   }
 
   body {
-    background-color: #FAFAFC;
+    background-color: #F8FAFC;
     color: #0F172A;
     font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
     -webkit-tap-highlight-color: transparent;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    letter-spacing: -0.011em;
+  }
+
+  /* Números tabulares para precisão contábil e alinhamento visual perfeito */
+  .tnum {
+    font-feature-settings: "tnum";
+    font-variant-numeric: tabular-nums;
   }
 
   button, a, input, select, textarea {

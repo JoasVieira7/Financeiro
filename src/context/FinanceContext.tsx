@@ -659,24 +659,30 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         const txId = `tx-inst-imp-${Date.now()}-${pIdx}-${installmentNum}-${Math.random().toString(36).substr(2, 4)}`;
 
+        // Estornos e reembolsos são classificados contabilmente como créditos (income) para não inflar despesas indevidamente
+        const txType: TransactionType = p.isRefund ? 'income' : 'expense';
+        const txNotes = p.isRefund
+          ? `Estorno / Reembolso · Cartão: ${p.cardName}${p.statusRaw ? ' · ' + p.statusRaw : ''}`
+          : `Cartão: ${p.cardName}${p.statusRaw ? ' · ' + p.statusRaw : ''}`;
+
         allNewTransactions.push({
           id: txId,
           user_id: user.id,
           amount: installmentAmount,
-          category: p.category || 'Compras',
+          category: p.category || (p.isRefund ? 'Outros' : 'Compras'),
           payment_method: 'cartao_credito',
           description: p.description.trim(),
-          type: 'expense',
+          type: txType,
           is_recurring: false,
-          notes: `Cartão: ${p.cardName}${p.statusRaw ? ' · ' + p.statusRaw : ''}`,
+          notes: txNotes,
           created_at: purchaseIso,
           purchase_date: purchaseIso,
           due_date: dueDateStr,
           paid_at: null, // NUNCA marcada como paga no momento da importação
           status,
-          installment_group_id: groupId,
-          installment_number: installmentNum,
-          installment_total: p.totalInstallments,
+          installment_group_id: p.totalInstallments > 1 ? groupId : undefined,
+          installment_number: p.totalInstallments > 1 ? installmentNum : undefined,
+          installment_total: p.totalInstallments > 1 ? p.totalInstallments : undefined,
           installment_purchase_amount: p.totalAmount,
         });
       }

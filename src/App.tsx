@@ -8,6 +8,7 @@ import { RecentTransactions } from './components/home/RecentTransactions';
 import { GoalsView } from './components/goals/GoalsView';
 import { TransactionsView } from './components/transactions/TransactionsView';
 import { ProfileView } from './components/profile/ProfileView';
+import { ReportsView } from './components/reports/ReportsView';
 import { ExpressPixModal } from './components/express/ExpressPixModal';
 import { AuthModal } from './components/auth/AuthModal';
 import { OnboardingModal } from './components/onboarding/OnboardingModal';
@@ -72,19 +73,19 @@ export const App: React.FC = () => {
             {/* 2. Meta de Economia do Mês */}
             <MonthlyGoalCard onGoToGoals={() => setActiveTab('goals')} />
 
-            {/* 3. BIG GREEN BUTTON: Registrar Gasto */}
+            {/* 3. Botão Principal: Registrar Transação */}
             <button
               onClick={() => {
                 setEditingTransaction(null);
                 setIsExpressPixOpen(true);
               }}
-              className="w-full py-4 rounded-full bg-[#00D26A] hover:bg-[#00C853] text-white font-extrabold text-base shadow-button-green active:scale-98 transition-all flex items-center justify-center cursor-pointer"
+              className="w-full py-3.5 px-6 rounded-2xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-bold text-sm sm:text-base shadow-button-green hover:shadow-button-hover active:scale-[0.99] transition-all flex items-center justify-center gap-2 cursor-pointer border border-emerald-400/30"
             >
-              Registrar gasto
+              <span>+ Registrar movimentação</span>
             </button>
 
             {/* 4. Resumo de Gastos (Donut Chart) */}
-            <CategoryBreakdownCard onGoToReports={() => setActiveTab('goals')} />
+            <CategoryBreakdownCard onGoToReports={() => setActiveTab('reports')} />
 
             {/* 5. Atividade Recente */}
             <RecentTransactions
@@ -95,7 +96,7 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {/* TAB 2: HISTÓRICO (Matching Image 3) */}
+        {/* TAB 2: EXTRATO / HISTÓRICO */}
         {activeTab === 'transactions' && (
           <TransactionsView
             onBack={() => setActiveTab('home')}
@@ -107,10 +108,13 @@ export const App: React.FC = () => {
           />
         )}
 
-        {/* TAB 3: METAS DE ECONOMIA (Matching Image 2) */}
+        {/* TAB 3: RELATÓRIOS & DESPESAS RECORRENTES */}
+        {activeTab === 'reports' && <ReportsView />}
+
+        {/* TAB 4: METAS DE ECONOMIA */}
         {activeTab === 'goals' && <GoalsView />}
 
-        {/* TAB 4: MEU PERFIL (Matching Image 1) */}
+        {/* TAB 5: MEU PERFIL */}
         {activeTab === 'profile' && (
           <ProfileView onOpenAuth={() => setIsAuthOpen(true)} />
         )}

@@ -18,21 +18,25 @@ export default {
         },
         pix: '#00D26A',
         surface: {
-          bg: '#FAFAFC',
+          bg: '#F8FAFC',
           card: '#FFFFFF',
-          border: '#F1F5F9',
-          muted: '#F8FAFC',
+          border: '#E2E8F0',
+          muted: '#F1F5F9',
         }
       },
       fontFamily: {
         sans: ['Plus Jakarta Sans', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'sans-serif'],
       },
       boxShadow: {
-        'card': '0 2px 12px -2px rgba(0, 0, 0, 0.04), 0 1px 3px 0 rgba(0, 0, 0, 0.02)',
-        'card-hover': '0 8px 24px -4px rgba(0, 0, 0, 0.08)',
-        'button-green': '0 8px 20px -4px rgba(0, 210, 106, 0.35)',
+        'subtle': '0 1px 2px 0 rgba(15, 23, 42, 0.03)',
+        'card': '0 1px 3px 0 rgba(15, 23, 42, 0.03), 0 4px 16px -2px rgba(15, 23, 42, 0.04)',
+        'card-hover': '0 8px 24px -4px rgba(15, 23, 42, 0.08), 0 2px 6px -1px rgba(15, 23, 42, 0.02)',
+        'elevated': '0 12px 32px -4px rgba(15, 23, 42, 0.1), 0 4px 12px -2px rgba(15, 23, 42, 0.04)',
+        'button-green': '0 4px 14px 0 rgba(0, 210, 106, 0.35)',
+        'button-hover': '0 6px 20px 0 rgba(0, 210, 106, 0.45)',
       },
       borderRadius: {
+        '2xl': '20px',
         '3xl': '24px',
         '4xl': '32px',
       }

@@ -23,32 +23,39 @@ export const MonthlyGoalCard: React.FC<MonthlyGoalCardProps> = ({ onGoToGoals })
     (monthlyTarget > 0 ? Math.min(100, Math.round((currentSaved / monthlyTarget) * 100)) : 0);
 
   return (
-    <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-card">
+    <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-slate-200/60 shadow-card hover:shadow-card-hover transition-all">
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <button
           type="button"
           onClick={onGoToGoals}
-          className="text-sm font-bold text-slate-900 hover:text-[#00D26A] transition-colors text-left cursor-pointer"
+          className="text-xs sm:text-sm font-semibold text-slate-800 hover:text-emerald-600 transition-colors text-left cursor-pointer flex items-center gap-1.5"
         >
-          Meta de Economia do Mês
+          <span>Meta de economia mensal</span>
         </button>
 
-        <span className="text-sm font-extrabold text-[#00D26A] font-mono">{percentage}%</span>
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/60 tnum">
+          {percentage}%
+        </span>
       </div>
 
-      {/* Thick Green Progress Bar */}
-      <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
+      {/* Modern Rounded Progress Bar */}
+      <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden p-0.5 border border-slate-100">
         <div
-          className="h-full bg-[#00D26A] rounded-full transition-all duration-500"
-          style={{ width: `${Math.min(100, Math.max(percentage > 0 ? 5 : 0, percentage))}%` }}
+          className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-full transition-all duration-700 ease-out"
+          style={{ width: `${Math.min(100, Math.max(percentage > 0 ? 4 : 0, percentage))}%` }}
         />
       </div>
 
       {/* Subtitle */}
-      <p className="text-xs font-medium text-slate-400 mt-3">
-        Você economizou {formatCurrency(currentSaved)} da meta de {formatCurrency(target)}
-      </p>
+      <div className="flex items-center justify-between text-xs text-slate-500 mt-2.5">
+        <span className="tnum font-medium">
+          Economizado: <strong className="text-slate-800 font-semibold">{formatCurrency(currentSaved)}</strong>
+        </span>
+        <span className="tnum text-slate-400 font-medium">
+          Meta: {formatCurrency(target)}
+        </span>
+      </div>
     </div>
   );
 };

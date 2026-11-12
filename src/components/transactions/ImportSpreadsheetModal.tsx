@@ -541,7 +541,7 @@ export const ImportSpreadsheetModal: React.FC<ImportSpreadsheetModalProps> = ({
         const result = parseInstallmentFile(buffer, file.name, transactions);
         // Inicializa o mês de referência a partir das compras da planilha
         if (result.purchases.length > 0) {
-          const firstDue = result.purchases.find(p => p.dueDate)?.dueDate;
+          const firstDue = result.purchases.find(p => p.dueDate && p.hasOriginalDueDate)?.dueDate;
           if (firstDue) {
             const match = firstDue.match(/^(\d{4})-(\d{2})(?:-(\d{2}))?/);
             if (match) {
@@ -549,6 +549,36 @@ export const ImportSpreadsheetModal: React.FC<ImportSpreadsheetModalProps> = ({
               setReferenceMonth(parseInt(match[2], 10));
               if (match[3]) setReferenceDueDay(parseInt(match[3], 10));
             }
+          } else if (result.suggestedReferencePeriod) {
+            // CSV sem coluna de vencimento (ex: Nubank): usa o mês predominante das compras
+            setReferenceYear(result.suggestedReferencePeriod.year);
+            setReferenceMonth(result.suggestedReferencePeriod.month);
+            setReferenceDueDay(result.suggestedReferencePeriod.dueDay);
+          }
+
+          // Quando o arquivo não possui vencimento original, aplica automaticamente
+          // o vencimento base calculado para que o usuário visualize e possa ajustar antes de confirmar
+          if (result.hasMissingDueDates) {
+            const ref = result.suggestedReferencePeriod || {
+              year: new Date().getFullYear(),
+              month: new Date().getMonth() + 1,
+              dueDay: 10,
+            };
+            const daysInMonth = new Date(ref.year, ref.month, 0).getDate();
+            const validDay = Math.min(ref.dueDay, daysInMonth);
+            const baseDueDate = `${ref.year}-${String(ref.month).padStart(2, '0')}-${String(validDay).padStart(2, '0')}`;
+            const todayIso = new Date().toISOString().split('T')[0];
+
+            result.purchases = result.purchases.map(p => {
+              if (!p.hasOriginalDueDate) {
+                return {
+                  ...p,
+                  dueDate: baseDueDate,
+                  isPastDueDate: baseDueDate < todayIso,
+                };
+              }
+              return p;
+            });
           }
         }
         setIsReferenceManuallyEdited(false);
@@ -1881,6 +1911,22 @@ export const ImportSpreadsheetModal: React.FC<ImportSpreadsheetModalProps> = ({
                   </button>
                 </div>
               </div>
+
+              {/* Alerta: CSV sem coluna de vencimento */}
+              {parseResult.hasMissingDueDates && (
+                <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 flex items-start gap-2.5 text-xs">
+                  <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-bold text-amber-900">
+                      Este arquivo não possui data de vencimento da fatura
+                    </p>
+                    <p className="text-amber-700 mt-0.5">
+                      Confirme ou ajuste o <strong>Dia de Vencimento</strong> e o <strong>Mês de Referência</strong> abaixo
+                      antes de importar. As compras receberão a data de vencimento que você definir.
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* Painel: Mês e Ano de Referência da Planilha (Etapa 33) */}
               <div className="p-4 rounded-2xl bg-white border border-emerald-200 shadow-2xs space-y-3">

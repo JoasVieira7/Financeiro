@@ -25,8 +25,10 @@ export const Navbar: React.FC<NavbarProps> = ({
     .join('')
     .toUpperCase() || 'JS';
 
+  const isPremium = profile?.plan_tier === 'premium';
+
   return (
-    <header className="sticky top-0 z-30 w-full bg-[#FAFAFC]/95 backdrop-blur-md px-4 pt-safe pb-2">
+    <header className="sticky top-0 z-30 w-full bg-[#F8FAFC]/85 backdrop-blur-xl border-b border-slate-200/50 px-4 pt-safe pb-2.5 transition-all">
       <div className="max-w-md sm:max-w-xl md:max-w-2xl lg:max-w-3xl mx-auto flex items-center justify-between">
         {/* Left: User Avatar & Name */}
         <div
@@ -34,7 +36,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           className="flex items-center gap-3 cursor-pointer select-none py-1 group"
           title="Ver perfil e configurações"
         >
-          <div className="w-10 h-10 rounded-full overflow-hidden bg-[#00D26A] flex items-center justify-center text-white font-extrabold text-sm shadow-sm border border-slate-100 shrink-0 group-hover:ring-2 group-hover:ring-emerald-300 transition-all">
+          <div className="relative w-10 h-10 rounded-full overflow-hidden bg-gradient-to-tr from-emerald-600 to-emerald-400 flex items-center justify-center text-white font-bold text-sm shadow-subtle border border-white ring-1 ring-slate-200/60 group-hover:ring-2 group-hover:ring-emerald-400/50 transition-all">
             {profile?.avatar_url ? (
               <img src={profile.avatar_url} alt={firstName} className="w-full h-full object-cover" />
             ) : (
@@ -42,26 +44,32 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
           </div>
           <div className="leading-tight min-w-0">
-            <h1 className="font-extrabold text-base text-slate-900 tracking-tight truncate flex items-center gap-1">
+            <h1 className="font-bold text-base text-slate-900 tracking-tight truncate flex items-center gap-1 group-hover:text-emerald-700 transition-colors">
               Olá, {firstName}
             </h1>
-            <p className="text-[11px] font-bold text-[#00D26A]">
-              {profile?.plan_tier === 'premium' ? 'Premium Ativo' : 'Plano Gratuito'}
-            </p>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold border ${
+                isPremium
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200/60'
+                  : 'bg-slate-100 text-slate-600 border-slate-200/60'
+              }`}>
+                {isPremium ? 'Premium' : 'Free'}
+              </span>
+            </div>
           </div>
         </div>
 
-        {/* Right: Notification Bell Button (Substituindo a engrenagem) */}
+        {/* Right: Notification Bell Button */}
         <button
           onClick={onOpenNotifications}
-          className="relative w-11 h-11 rounded-full flex items-center justify-center text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
+          className="relative w-10 h-10 rounded-full flex items-center justify-center text-slate-600 hover:text-slate-900 hover:bg-white active:scale-95 transition-all cursor-pointer border border-transparent hover:border-slate-200/60 hover:shadow-subtle"
           title="Notificações"
           aria-label="Abrir notificações"
         >
-          <Bell className="w-5 h-5 text-slate-700 stroke-[2.2]" />
+          <Bell className="w-4.5 h-4.5 text-slate-700 stroke-[2.2]" />
 
           {unreadNotificationsCount > 0 && (
-            <span className="absolute top-2 right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-[#00D26A] text-white text-[10px] font-extrabold flex items-center justify-center shadow-xs border-2 border-white animate-scale-in">
+            <span className="absolute top-1.5 right-1.5 min-w-[17px] h-[17px] px-1 rounded-full bg-emerald-500 text-white text-[10px] font-bold flex items-center justify-center shadow-xs border-2 border-white animate-scale-in">
               {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
             </span>
           )}

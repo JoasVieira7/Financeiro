@@ -1,7 +1,7 @@
 import React from 'react';
-import { Home, Receipt, Target, User } from 'lucide-react';
+import { Home, Receipt, BarChart3, Target, User } from 'lucide-react';
 
-export type TabType = 'home' | 'transactions' | 'goals' | 'profile';
+export type TabType = 'home' | 'transactions' | 'reports' | 'goals' | 'profile';
 
 interface BottomTabsProps {
   activeTab: TabType;
@@ -13,64 +13,46 @@ export const BottomTabs: React.FC<BottomTabsProps> = ({
   activeTab,
   onChangeTab,
 }) => {
+  const tabs = [
+    { id: 'home' as TabType, label: 'Início', icon: Home },
+    { id: 'transactions' as TabType, label: 'Extrato', icon: Receipt },
+    { id: 'reports' as TabType, label: 'Relatórios', icon: BarChart3 },
+    { id: 'goals' as TabType, label: 'Metas', icon: Target },
+    { id: 'profile' as TabType, label: 'Perfil', icon: User },
+  ];
+
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-xl border-t border-slate-100 px-6 pb-safe pt-2 shadow-sm">
-      <div className="max-w-md sm:max-w-xl md:max-w-2xl lg:max-w-3xl mx-auto flex items-center justify-between">
-        {/* Tab 1: Início */}
-        <button
-          onClick={() => onChangeTab('home')}
-          className={`min-h-[44px] min-w-[48px] flex flex-col items-center justify-center py-1 transition-all cursor-pointer ${
-            activeTab === 'home'
-              ? 'text-[#00D26A] font-extrabold'
-              : 'text-slate-400 hover:text-slate-600'
-          }`}
-          aria-label="Ir para Início"
-        >
-          <Home className={`w-5 h-5 transition-transform ${activeTab === 'home' ? 'scale-110 stroke-[2.5]' : ''}`} />
-          <span className="text-[10px] mt-1 font-semibold">Início</span>
-        </button>
-
-        {/* Tab 2: Histórico */}
-        <button
-          onClick={() => onChangeTab('transactions')}
-          className={`min-h-[44px] min-w-[48px] flex flex-col items-center justify-center py-1 transition-all cursor-pointer ${
-            activeTab === 'transactions'
-              ? 'text-[#00D26A] font-extrabold'
-              : 'text-slate-400 hover:text-slate-600'
-          }`}
-          aria-label="Ir para Histórico de Transações"
-        >
-          <Receipt className={`w-5 h-5 transition-transform ${activeTab === 'transactions' ? 'scale-110 stroke-[2.5]' : ''}`} />
-          <span className="text-[10px] mt-1 font-semibold">Histórico</span>
-        </button>
-
-        {/* Tab 3: Metas */}
-        <button
-          onClick={() => onChangeTab('goals')}
-          className={`min-h-[44px] min-w-[48px] flex flex-col items-center justify-center py-1 transition-all cursor-pointer ${
-            activeTab === 'goals'
-              ? 'text-[#00D26A] font-extrabold'
-              : 'text-slate-400 hover:text-slate-600'
-          }`}
-          aria-label="Ir para Metas de Economia"
-        >
-          <Target className={`w-5 h-5 transition-transform ${activeTab === 'goals' ? 'scale-110 stroke-[2.5]' : ''}`} />
-          <span className="text-[10px] mt-1 font-semibold">Metas</span>
-        </button>
-
-        {/* Tab 4: Perfil */}
-        <button
-          onClick={() => onChangeTab('profile')}
-          className={`min-h-[44px] min-w-[48px] flex flex-col items-center justify-center py-1 transition-all cursor-pointer ${
-            activeTab === 'profile'
-              ? 'text-[#00D26A] font-extrabold'
-              : 'text-slate-400 hover:text-slate-600'
-          }`}
-          aria-label="Ir para Meu Perfil"
-        >
-          <User className={`w-5 h-5 transition-transform ${activeTab === 'profile' ? 'scale-110 stroke-[2.5]' : ''}`} />
-          <span className="text-[10px] mt-1 font-semibold">Perfil</span>
-        </button>
+    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/90 backdrop-blur-xl border-t border-slate-200/60 px-3 sm:px-6 pb-safe pt-2 shadow-[0_-2px_12px_rgba(15,23,42,0.03)] transition-all">
+      <div className="max-w-md sm:max-w-xl md:max-w-2xl lg:max-w-3xl mx-auto flex items-center justify-between gap-1">
+        {tabs.map(tab => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => onChangeTab(tab.id)}
+              className={`min-h-[44px] flex-1 flex flex-col items-center justify-center py-1.5 px-1 rounded-xl transition-all cursor-pointer ${
+                isActive
+                  ? 'text-emerald-600 bg-emerald-50/70'
+                  : 'text-slate-400 hover:text-slate-700 hover:bg-slate-50/60 active:scale-95'
+              }`}
+              aria-label={`Ir para ${tab.label}`}
+            >
+              <Icon
+                className={`w-5 h-5 transition-transform ${
+                  isActive ? 'scale-105 stroke-[2.4]' : 'stroke-[1.8]'
+                }`}
+              />
+              <span
+                className={`text-[10px] mt-1 tracking-tight leading-none ${
+                  isActive ? 'font-bold text-emerald-700' : 'font-medium'
+                }`}
+              >
+                {tab.label}
+              </span>
+            </button>
+          );
+        })}
       </div>
     </nav>
   );

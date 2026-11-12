@@ -249,19 +249,19 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
   const visibleCategories = showAllCategories ? ALL_CATEGORIES : PRIMARY_CATEGORIES;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in">
-      <div className="w-full max-w-md bg-white rounded-t-[36px] sm:rounded-[36px] p-5 sm:p-6 shadow-2xl animate-slide-up sm:animate-scale-in max-h-[95vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/40 backdrop-blur-sm animate-fade-in p-0 sm:p-4">
+      <div className="w-full max-w-md bg-white rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 shadow-elevated border border-slate-100 animate-slide-up sm:animate-scale-in max-h-[92vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-slate-100">
           <button
             onClick={onClose}
             type="button"
-            className="w-9 h-9 rounded-full bg-slate-100 text-slate-500 hover:text-slate-900 flex items-center justify-center transition-colors cursor-pointer"
+            className="w-8 h-8 rounded-full bg-slate-100 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 flex items-center justify-center transition-colors cursor-pointer"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
 
-          <h3 className="text-base font-extrabold text-slate-900 tracking-tight">
+          <h3 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight">
             {editingTransaction ? 'Editar Lançamento' : 'Novo Lançamento'}
           </h3>
 
@@ -269,12 +269,12 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
             <button
               onClick={() => setShowDeleteConfirm(true)}
               title="Excluir"
-              className="w-9 h-9 rounded-full bg-rose-50 text-rose-500 hover:bg-rose-100 flex items-center justify-center transition-colors cursor-pointer"
+              className="w-8 h-8 rounded-full bg-rose-50 text-rose-500 hover:bg-rose-100 flex items-center justify-center transition-colors cursor-pointer"
             >
               <Trash2 className="w-4 h-4" />
             </button>
           ) : (
-            <div className="w-9" />
+            <div className="w-8" />
           )}
         </div>
 
@@ -384,13 +384,13 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
 
         {/* Income / Expense Switcher Pill */}
         <div className="flex items-center justify-center gap-2 mt-3">
-          <div className="p-1 rounded-full bg-slate-100 flex items-center gap-1">
+          <div className="p-1 rounded-full bg-slate-100 border border-slate-200/60 flex items-center gap-1">
             <button
               type="button"
               onClick={() => setTxType('expense')}
-              className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+              className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
                 txType === 'expense'
-                  ? 'bg-white text-slate-900 shadow-xs'
+                  ? 'bg-white text-slate-900 shadow-subtle'
                   : 'text-slate-500 hover:text-slate-800'
               }`}
             >
@@ -403,9 +403,9 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
                 setPaymentType('spot');
                 if (selectedCategory === 'Alimentação') setSelectedCategory('Salário');
               }}
-              className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+              className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
                 txType === 'income'
-                  ? 'bg-[#00D26A] text-white shadow-xs'
+                  ? 'bg-emerald-600 text-white shadow-subtle'
                   : 'text-slate-500 hover:text-slate-800'
               }`}
             >
@@ -421,9 +421,9 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
               <button
                 type="button"
                 onClick={() => setPaymentType('spot')}
-                className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
                   paymentType === 'spot'
-                    ? 'bg-white text-slate-900 shadow-xs'
+                    ? 'bg-white text-slate-900 shadow-subtle'
                     : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
@@ -435,9 +435,9 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
                   setPaymentType('installment');
                   if (paymentMethod === 'pix') setPaymentMethod('cartao_credito');
                 }}
-                className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
                   paymentType === 'installment'
-                    ? 'bg-[#00D26A] text-white shadow-xs'
+                    ? 'bg-emerald-600 text-white shadow-subtle'
                     : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
@@ -449,21 +449,21 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
 
         {/* Display: Valor */}
         <div className="text-center mt-3 mb-2">
-          <span className="text-xs font-semibold text-slate-400 block">
+          <span className="text-xs font-medium text-slate-400 block">
             {txType === 'income'
-              ? 'Valor da Receita'
+              ? 'Valor da receita'
               : paymentType === 'installment' && !editingTransaction
-              ? 'Valor Total da Compra'
+              ? 'Valor total da compra'
               : editingTransaction?.installment_group_id
-              ? `Valor desta Parcela (${editingTransaction.installment_number}/${editingTransaction.installment_total})`
-              : 'Valor do Gasto'}
+              ? `Valor desta parcela (${editingTransaction.installment_number}/${editingTransaction.installment_total})`
+              : 'Valor do gasto'}
           </span>
-          <div className="text-4xl font-extrabold text-slate-900 tracking-tight mt-1 font-mono flex items-center justify-center gap-1.5">
-            <span className="text-[#00D26A]">R$</span>
+          <div className="text-3xl sm:text-4xl font-bold text-slate-900 tracking-tight mt-1 tnum flex items-center justify-center gap-1.5">
+            <span className={txType === 'income' ? 'text-emerald-600' : 'text-slate-400'}>R$</span>
             <span>{amountStr}</span>
           </div>
           {paymentType === 'installment' && !editingTransaction && totalVal > 0 && (
-            <span className="text-xs font-bold text-[#00D26A] mt-1 block font-mono">
+            <span className="text-xs font-semibold text-emerald-600 mt-1 block tnum">
               {numInstallments}x de {formatCurrency(installmentVal)}
             </span>
           )}
@@ -471,29 +471,29 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
 
         {/* Configuração de Parcelamento (Aparece somente quando "Parcelado") */}
         {paymentType === 'installment' && txType === 'expense' && !editingTransaction && (
-          <div className="mt-3 p-3.5 rounded-2xl bg-slate-50 border border-slate-200/90 space-y-3">
+          <div className="mt-3 p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3">
             {/* Número de parcelas */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                  <Layers className="w-3.5 h-3.5 text-[#00D26A]" />
-                  Número de Parcelas
+                <label className="text-xs font-semibold text-slate-700 flex items-center gap-1">
+                  <Layers className="w-3.5 h-3.5 text-emerald-600" />
+                  Número de parcelas
                 </label>
-                <span className="text-xs font-extrabold text-[#00D26A] font-mono">
+                <span className="text-xs font-bold text-emerald-600 tnum">
                   {numInstallments}x de {formatCurrency(installmentVal)}
                 </span>
               </div>
 
-              <div className="grid grid-cols-6 gap-1.5">
+              <div className="grid grid-cols-7 gap-1.5">
                 {[2, 3, 4, 5, 6, 10, 12].map(n => (
                   <button
                     key={n}
                     type="button"
                     onClick={() => setInstallments(n)}
-                    className={`py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    className={`py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                       installments === n
-                        ? 'bg-[#00D26A] text-white shadow-xs'
-                        : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
+                        ? 'bg-emerald-600 text-white shadow-subtle'
+                        : 'bg-white border border-slate-200/70 text-slate-700 hover:bg-slate-100'
                     }`}
                   >
                     {n}x
@@ -504,29 +504,29 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
 
             {/* Data da 1ª Parcela */}
             <div className="flex items-center justify-between gap-3 pt-1 border-t border-slate-200/70">
-              <label className="text-xs font-bold text-slate-700 flex items-center gap-1 shrink-0">
-                <Calendar className="w-3.5 h-3.5 text-slate-500" />
-                1ª Parcela:
+              <label className="text-xs font-semibold text-slate-700 flex items-center gap-1 shrink-0">
+                <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                1ª parcela:
               </label>
               <input
                 type="date"
                 value={firstInstallmentDate}
                 onChange={e => setFirstInstallmentDate(e.target.value)}
-                className="text-base sm:text-xs font-semibold px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white text-slate-800 focus:outline-none focus:border-[#00D26A]"
+                className="text-base sm:text-xs font-medium px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500"
               />
             </div>
 
-            {/* Resumo do Parcelamento (Exatamente como especificado) */}
-            <div className="p-3 rounded-xl bg-white border border-slate-200/80 space-y-1">
+            {/* Resumo do Parcelamento */}
+            <div className="p-2.5 rounded-xl bg-white border border-slate-200/60 space-y-1">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-extrabold text-slate-900">
+                <span className="text-xs font-bold text-slate-900 tnum">
                   {numInstallments}x de {formatCurrency(installmentVal)}
                 </span>
-                <span className="text-[11px] font-bold text-slate-500">
+                <span className="text-[11px] font-semibold text-slate-500 tnum">
                   Total: {formatCurrency(totalVal)}
                 </span>
               </div>
-              <div className="flex items-center justify-between text-[11px] text-slate-500 font-medium pt-0.5">
+              <div className="flex items-center justify-between text-[11px] text-slate-400 font-medium pt-0.5">
                 <span>Início: {startDateFormatted || '—'}</span>
                 <span>Término: {endDateFormatted || '—'}</span>
               </div>
@@ -544,10 +544,10 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
                 key={pm.id}
                 type="button"
                 onClick={() => setPaymentMethod(pm.id)}
-                className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap ${
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all cursor-pointer whitespace-nowrap border ${
                   isSelected
-                    ? 'bg-slate-900 text-white shadow-xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    ? 'bg-slate-900 text-white border-slate-900 shadow-subtle'
+                    : 'bg-white border-slate-200/70 text-slate-600 hover:bg-slate-50'
                 }`}
               >
                 <Icon className="w-3 h-3" />
@@ -565,7 +565,7 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
               value={description}
               onChange={e => setDescription(e.target.value)}
               placeholder="Estabelecimento ou detalhe (ex: Atacadão, Uber, Padaria)"
-              className="w-full h-11 px-4 text-base sm:text-xs font-semibold text-slate-800 placeholder:text-slate-400 placeholder:font-normal bg-slate-50 border border-slate-200/90 rounded-2xl focus:outline-none focus:border-[#00D26A] focus:bg-white transition-all shadow-2xs"
+              className="w-full h-11 px-3.5 text-base sm:text-xs font-medium text-slate-800 placeholder:text-slate-400 bg-slate-50/60 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:bg-white transition-all shadow-subtle"
               maxLength={60}
             />
             {description && (
@@ -581,15 +581,15 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
           </div>
         </div>
 
-        {/* Section: Selecione a Categoria (Matching Image 4) */}
+        {/* Section: Selecione a Categoria */}
         <div className="mt-3">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold text-slate-500 block text-center w-full">
-              Selecione a Categoria
+            <span className="text-xs font-semibold text-slate-500 block text-center w-full">
+              Selecione a categoria
             </span>
           </div>
 
-          <div className="grid grid-cols-2 gap-2.5">
+          <div className="grid grid-cols-2 gap-2">
             {visibleCategories.map(cat => {
               const Icon = cat.icon;
               const isSelected = selectedCategory === cat.name;
@@ -599,14 +599,14 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
                   key={cat.name}
                   type="button"
                   onClick={() => setSelectedCategory(cat.name)}
-                  className={`h-20 rounded-2xl flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                  className={`h-16 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all cursor-pointer border ${
                     isSelected
-                      ? 'bg-[#00D26A] text-white shadow-[0_6px_16px_rgba(0,210,106,0.25)] scale-[1.01]'
-                      : 'bg-[#00D26A]/10 text-slate-700 hover:bg-[#00D26A]/20'
+                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-subtle scale-[1.01]'
+                      : 'bg-slate-50 hover:bg-slate-100/70 border-slate-200/50 text-slate-700'
                   }`}
                 >
-                  <Icon className={`w-5 h-5 ${isSelected ? 'text-white' : 'text-[#00D26A]'}`} />
-                  <span className="text-xs font-bold">{cat.label}</span>
+                  <Icon className={`w-4.5 h-4.5 ${isSelected ? 'text-white' : 'text-slate-600'}`} />
+                  <span className="text-xs font-medium">{cat.label}</span>
                 </button>
               );
             })}
@@ -617,21 +617,21 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
             <button
               type="button"
               onClick={() => setShowAllCategories(!showAllCategories)}
-              className="text-[11px] font-bold text-slate-500 hover:text-slate-800 underline cursor-pointer"
+              className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 underline cursor-pointer"
             >
-              {showAllCategories ? 'Mostrar Menos Categorias' : '+ Ver Mais Categorias'}
+              {showAllCategories ? 'Mostrar menos categorias' : '+ Ver mais categorias'}
             </button>
           </div>
         </div>
 
-        {/* Numeric Keypad (Matching Image 4) */}
-        <div className="grid grid-cols-3 gap-2 mt-3">
+        {/* Numeric Keypad */}
+        <div className="grid grid-cols-3 gap-1.5 mt-3">
           {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(d => (
             <button
               key={d}
               type="button"
               onClick={() => handleDigit(d)}
-              className="h-12 rounded-2xl bg-white hover:bg-slate-100 active:bg-slate-200 text-xl font-bold text-slate-900 border border-slate-100 shadow-xs flex items-center justify-center transition-colors cursor-pointer"
+              className="h-11 rounded-xl bg-slate-50 hover:bg-slate-100 active:bg-slate-200 text-lg font-semibold text-slate-900 border border-slate-200/50 shadow-subtle flex items-center justify-center transition-colors cursor-pointer"
             >
               {d}
             </button>
@@ -640,7 +640,7 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
           <button
             type="button"
             onClick={() => handleDigit('00')}
-            className="h-12 rounded-2xl bg-white hover:bg-slate-100 active:bg-slate-200 text-sm font-bold text-slate-700 border border-slate-100 shadow-xs flex items-center justify-center transition-colors cursor-pointer"
+            className="h-11 rounded-xl bg-slate-50 hover:bg-slate-100 active:bg-slate-200 text-sm font-semibold text-slate-700 border border-slate-200/50 shadow-subtle flex items-center justify-center transition-colors cursor-pointer"
           >
             00
           </button>
@@ -648,7 +648,7 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
           <button
             type="button"
             onClick={() => handleDigit('0')}
-            className="h-12 rounded-2xl bg-white hover:bg-slate-100 active:bg-slate-200 text-xl font-bold text-slate-900 border border-slate-100 shadow-xs flex items-center justify-center transition-colors cursor-pointer"
+            className="h-11 rounded-xl bg-slate-50 hover:bg-slate-100 active:bg-slate-200 text-lg font-semibold text-slate-900 border border-slate-200/50 shadow-subtle flex items-center justify-center transition-colors cursor-pointer"
           >
             0
           </button>
@@ -657,30 +657,30 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
             type="button"
             onClick={handleBackspace}
             aria-label="Apagar dígito"
-            className="h-12 rounded-2xl bg-white hover:bg-slate-100 active:bg-slate-200 text-slate-700 border border-slate-100 shadow-xs flex items-center justify-center transition-colors cursor-pointer"
+            className="h-11 rounded-xl bg-slate-50 hover:bg-slate-100 active:bg-slate-200 text-slate-700 border border-slate-200/50 shadow-subtle flex items-center justify-center transition-colors cursor-pointer"
           >
-            <Delete className="w-5 h-5 stroke-[2]" />
+            <Delete className="w-4.5 h-4.5 stroke-[2]" />
           </button>
         </div>
 
-        {/* Bottom Big Button (Matching Image 4) */}
+        {/* Bottom Big Button */}
         <button
           type="button"
           onClick={handleSubmit}
           disabled={isSubmitting}
-          className="w-full py-4 rounded-full bg-[#00D26A] hover:bg-[#00C853] active:scale-98 text-white font-extrabold text-sm sm:text-base shadow-button-green transition-all flex items-center justify-center gap-2 cursor-pointer mt-4"
+          className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 active:scale-[0.99] text-white font-bold text-sm sm:text-base shadow-button-green hover:shadow-button-hover transition-all flex items-center justify-center gap-2 cursor-pointer mt-4"
         >
           {isSubmitting ? (
             <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
           ) : (
             <span>
               {editingTransaction
-                ? 'Salvar Alterações'
+                ? 'Salvar alterações'
                 : txType === 'income'
                 ? 'Registrar receita'
                 : paymentType === 'installment'
                 ? `Registrar compra (${numInstallments}x de ${formatCurrency(installmentVal)})`
-                : 'Registrar gasto'}
+                : 'Registrar movimentação'}
             </span>
           )}
         </button>

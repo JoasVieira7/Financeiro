@@ -231,29 +231,29 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
     const desc = description.toLowerCase();
     if (isIncome) {
       if (desc.includes('venda') || desc.includes('comércio')) {
-        return { icon: Store, bg: 'bg-[#00D26A]', color: 'text-white' };
+        return { icon: Store, bg: 'bg-emerald-50 text-emerald-600 border-emerald-100' };
       }
-      return { icon: Wallet, bg: 'bg-[#00D26A]', color: 'text-white' };
+      return { icon: Wallet, bg: 'bg-emerald-50 text-emerald-600 border-emerald-100' };
     }
-    if (desc.includes('netflix') || desc.includes('spotify') || desc.includes('cinema')) {
-      return { icon: Play, bg: 'bg-[#EF4444]', color: 'text-white' };
+    if (desc.includes('netflix') || desc.includes('spotify') || desc.includes('cinema') || category === 'Lazer') {
+      return { icon: Play, bg: 'bg-rose-50 text-rose-600 border-rose-100' };
     }
     if (category === 'Transporte' || desc.includes('uber') || desc.includes('combustível')) {
-      return { icon: Car, bg: 'bg-[#2563EB]', color: 'text-white' };
+      return { icon: Car, bg: 'bg-blue-50 text-blue-600 border-blue-100' };
     }
     if (category === 'Contas' || desc.includes('mercado') || desc.includes('supermercado')) {
-      return { icon: ShoppingCart, bg: 'bg-[#7C3AED]', color: 'text-white' };
+      return { icon: ShoppingCart, bg: 'bg-purple-50 text-purple-600 border-purple-100' };
     }
     if (category === 'Moradia') {
-      return { icon: Building, bg: 'bg-[#4F46E5]', color: 'text-white' };
+      return { icon: Building, bg: 'bg-indigo-50 text-indigo-600 border-indigo-100' };
     }
     if (category === 'Saúde') {
-      return { icon: HeartPulse, bg: 'bg-[#E11D48]', color: 'text-white' };
+      return { icon: HeartPulse, bg: 'bg-rose-50 text-rose-600 border-rose-100' };
     }
     if (category === 'Alimentação') {
-      return { icon: Utensils, bg: 'bg-[#1E293B]', color: 'text-white' };
+      return { icon: Utensils, bg: 'bg-amber-50 text-amber-600 border-amber-100' };
     }
-    return { icon: Tag, bg: 'bg-[#00D26A]', color: 'text-white' };
+    return { icon: Tag, bg: 'bg-slate-50 text-slate-600 border-slate-200/60' };
   };
 
   // Se o usuário selecionou o modo "Compromissos Futuros"
@@ -261,20 +261,20 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
     return (
       <div className="space-y-4">
         {/* Toggle Switcher Header */}
-        <div className="flex items-center justify-center p-1 rounded-full bg-slate-100 max-w-xs mx-auto mb-2">
+        <div className="flex items-center justify-center p-1 rounded-full bg-slate-100 border border-slate-200/60 max-w-xs mx-auto mb-2">
           <button
             type="button"
             onClick={() => setViewMode('history')}
-            className="flex-1 py-1.5 rounded-full text-xs font-bold text-slate-500 hover:text-slate-900 transition-all cursor-pointer"
+            className="flex-1 py-1.5 rounded-full text-xs font-semibold text-slate-500 hover:text-slate-900 transition-all cursor-pointer"
           >
-            Histórico Financeiro
+            Extrato Geral
           </button>
           <button
             type="button"
             onClick={() => setViewMode('commitments')}
-            className="flex-1 py-1.5 rounded-full text-xs font-bold bg-white text-slate-900 shadow-xs transition-all cursor-pointer"
+            className="flex-1 py-1.5 rounded-full text-xs font-semibold bg-white text-slate-900 shadow-subtle transition-all cursor-pointer"
           >
-            Compromissos Futuros
+            Compromissos
           </button>
         </div>
 
@@ -292,16 +292,16 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
             onClick={onBack}
             type="button"
             aria-label="Voltar"
-            className="w-9 h-9 rounded-full flex items-center justify-center text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer"
+            className="w-8 h-8 rounded-full bg-white border border-slate-200/70 shadow-subtle text-slate-600 hover:text-slate-900 flex items-center justify-center transition-colors cursor-pointer"
           >
-            <ChevronLeft className="w-6 h-6" />
+            <ChevronLeft className="w-4 h-4" />
           </button>
         ) : (
-          <div className="w-9" />
+          <div className="w-8" />
         )}
 
-        <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">
-          Histórico Financeiro
+        <h2 className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight">
+          Extrato Financeiro
         </h2>
 
         {onNewTransaction ? (
@@ -309,49 +309,49 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
             onClick={onNewTransaction}
             type="button"
             title="Adicionar Despesa ou Receita"
-            className="w-9 h-9 rounded-full bg-emerald-50 text-[#00D26A] hover:bg-emerald-100 flex items-center justify-center transition-colors cursor-pointer"
+            className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-200/60 flex items-center justify-center transition-colors cursor-pointer shadow-subtle"
           >
-            <Plus className="w-5 h-5 stroke-[2.5]" />
+            <Plus className="w-4.5 h-4.5 stroke-[2.5]" />
           </button>
         ) : (
-          <div className="w-9" />
+          <div className="w-8" />
         )}
       </div>
 
       {/* View Switcher Pill: Histórico vs Compromissos Futuros */}
-      <div className="flex items-center justify-center p-1 rounded-full bg-slate-100 max-w-xs mx-auto">
+      <div className="flex items-center justify-center p-1 rounded-full bg-slate-100 border border-slate-200/60 max-w-xs mx-auto">
         <button
           type="button"
           onClick={() => setViewMode('history')}
-          className="flex-1 py-1.5 rounded-full text-xs font-bold bg-white text-slate-900 shadow-xs transition-all cursor-pointer"
+          className="flex-1 py-1.5 rounded-full text-xs font-semibold bg-white text-slate-900 shadow-subtle transition-all cursor-pointer"
         >
-          Histórico Financeiro
+          Extrato Geral
         </button>
         <button
           type="button"
           onClick={() => setViewMode('commitments')}
-          className="flex-1 py-1.5 rounded-full text-xs font-bold text-slate-500 hover:text-slate-900 transition-all cursor-pointer"
+          className="flex-1 py-1.5 rounded-full text-xs font-semibold text-slate-500 hover:text-slate-900 transition-all cursor-pointer"
         >
-          Compromissos Futuros
+          Compromissos
         </button>
       </div>
 
-      {/* Navegador de Mês e Ano de Consulta (Etapa 33) */}
-      <div className="bg-white rounded-3xl p-4 border border-slate-100 shadow-card space-y-3">
+      {/* Navegador de Mês e Ano de Consulta */}
+      <div className="bg-white rounded-2xl sm:rounded-3xl p-4 border border-slate-200/60 shadow-card space-y-3">
         <div className="flex items-center justify-between">
           <button
             type="button"
             onClick={handlePrevMonth}
             aria-label="Mês anterior"
-            className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center transition-colors cursor-pointer"
+            className="w-8 h-8 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200/50 text-slate-700 flex items-center justify-center transition-colors cursor-pointer"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
 
           <div className="text-center">
             <div className="flex items-center justify-center gap-2">
-              <Calendar className="w-4 h-4 text-[#00D26A]" />
-              <h3 className="text-sm font-extrabold text-slate-900 capitalize">
+              <Calendar className="w-4 h-4 text-emerald-600" />
+              <h3 className="text-sm font-bold text-slate-900 capitalize">
                 {capitalizedMonthLabel}
               </h3>
             </div>
@@ -359,7 +359,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
               <button
                 type="button"
                 onClick={handleCurrentMonth}
-                className="text-[11px] font-bold text-[#00D26A] hover:underline mt-0.5 cursor-pointer block mx-auto"
+                className="text-[11px] font-semibold text-emerald-600 hover:underline mt-0.5 cursor-pointer block mx-auto"
               >
                 Voltar para o mês atual
               </button>
@@ -370,38 +370,38 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
             type="button"
             onClick={handleNextMonth}
             aria-label="Próximo mês"
-            className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center transition-colors cursor-pointer"
+            className="w-8 h-8 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200/50 text-slate-700 flex items-center justify-center transition-colors cursor-pointer"
           >
             <ChevronRight className="w-4 h-4" />
           </button>
         </div>
 
         {/* Resumo Contábil do Mês Selecionado */}
-        <div className="grid grid-cols-3 gap-2 pt-1 border-t border-slate-100 text-center">
-          <div className="p-2 rounded-xl bg-slate-50">
-            <span className="text-[10px] font-bold text-slate-400 block uppercase">
+        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100 text-center">
+          <div className="p-2.5 rounded-xl bg-slate-50/70 border border-slate-100">
+            <span className="text-[10px] font-medium text-slate-400 block uppercase tracking-wider">
               Receitas
             </span>
-            <span className="text-xs font-mono font-extrabold text-[#00D26A] block mt-0.5">
+            <span className="text-xs font-bold text-emerald-600 block mt-0.5 tnum">
               +{formatCurrency(monthSummary.income)}
             </span>
           </div>
 
-          <div className="p-2 rounded-xl bg-slate-50">
-            <span className="text-[10px] font-bold text-slate-400 block uppercase">
+          <div className="p-2.5 rounded-xl bg-slate-50/70 border border-slate-100">
+            <span className="text-[10px] font-medium text-slate-400 block uppercase tracking-wider">
               Despesas
             </span>
-            <span className="text-xs font-mono font-extrabold text-rose-600 block mt-0.5">
+            <span className="text-xs font-bold text-rose-600 block mt-0.5 tnum">
               -{formatCurrency(monthSummary.expense)}
             </span>
           </div>
 
-          <div className="p-2 rounded-xl bg-slate-50">
-            <span className="text-[10px] font-bold text-slate-400 block uppercase">
+          <div className="p-2.5 rounded-xl bg-slate-50/70 border border-slate-100">
+            <span className="text-[10px] font-medium text-slate-400 block uppercase tracking-wider">
               Saldo
             </span>
             <span
-              className={`text-xs font-mono font-extrabold block mt-0.5 ${
+              className={`text-xs font-bold block mt-0.5 tnum ${
                 monthSummary.balance >= 0 ? 'text-slate-900' : 'text-rose-600'
               }`}
             >
@@ -411,26 +411,26 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
         </div>
       </div>
 
-      {/* Filter Pills (Sem pílula 'Semana') */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+      {/* Filter Pills */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
         <button
           onClick={() => setActiveFilter('month')}
-          className={`flex items-center gap-1 px-4 py-2 rounded-full text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+          className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all whitespace-nowrap cursor-pointer border ${
             activeFilter === 'month'
-              ? 'bg-white border-2 border-slate-900 text-slate-900 shadow-sm'
-              : 'bg-white border border-slate-200 text-slate-600'
+              ? 'bg-slate-900 border-slate-900 text-white shadow-subtle'
+              : 'bg-white border-slate-200/80 text-slate-600 hover:bg-slate-50'
           }`}
         >
-          {activeFilter === 'month' && <Check className="w-3.5 h-3.5 stroke-[3]" />}
-          <span>Mês Selecionado ({monthSummary.count})</span>
+          {activeFilter === 'month' && <Check className="w-3 h-3 stroke-[3]" />}
+          <span>Mês ({monthSummary.count})</span>
         </button>
 
         <button
           onClick={() => setActiveFilter('expense')}
-          className={`px-4 py-2 rounded-full text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+          className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all whitespace-nowrap cursor-pointer border ${
             activeFilter === 'expense'
-              ? 'bg-white border-2 border-slate-900 text-slate-900 shadow-sm'
-              : 'bg-white border border-slate-200 text-slate-600'
+              ? 'bg-slate-900 border-slate-900 text-white shadow-subtle'
+              : 'bg-white border-slate-200/80 text-slate-600 hover:bg-slate-50'
           }`}
         >
           Despesas
@@ -438,10 +438,10 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
 
         <button
           onClick={() => setActiveFilter('income')}
-          className={`px-4 py-2 rounded-full text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+          className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all whitespace-nowrap cursor-pointer border ${
             activeFilter === 'income'
-              ? 'bg-white border-2 border-slate-900 text-slate-900 shadow-sm'
-              : 'bg-white border border-slate-200 text-slate-600'
+              ? 'bg-slate-900 border-slate-900 text-white shadow-subtle'
+              : 'bg-white border-slate-200/80 text-slate-600 hover:bg-slate-50'
           }`}
         >
           Receitas
@@ -449,39 +449,39 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
 
         <button
           onClick={() => setActiveFilter('credit')}
-          className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+          className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all whitespace-nowrap cursor-pointer border ${
             activeFilter === 'credit'
-              ? 'bg-white border-2 border-slate-900 text-slate-900 shadow-sm'
-              : 'bg-white border border-slate-200 text-slate-600'
+              ? 'bg-slate-900 border-slate-900 text-white shadow-subtle'
+              : 'bg-white border-slate-200/80 text-slate-600 hover:bg-slate-50'
           }`}
         >
           <CreditCard className="w-3.5 h-3.5" />
-          <span>Faturas / Cartão ({monthSummary.creditPurchases})</span>
+          <span>Cartão ({monthSummary.creditPurchases})</span>
         </button>
 
         <button
           onClick={() => setActiveFilter('all')}
-          className={`px-4 py-2 rounded-full text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+          className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all whitespace-nowrap cursor-pointer border ${
             activeFilter === 'all'
-              ? 'bg-white border-2 border-slate-900 text-slate-900 shadow-sm'
-              : 'bg-white border border-slate-200 text-slate-600'
+              ? 'bg-slate-900 border-slate-900 text-white shadow-subtle'
+              : 'bg-white border-slate-200/80 text-slate-600 hover:bg-slate-50'
           }`}
         >
-          Todo o Histórico
+          Histórico Geral
         </button>
       </div>
 
       {/* Subheader: Contador, Importar e Exportar Planilha */}
       <div className="flex items-center justify-between px-1 gap-2">
-        <span className="text-xs font-semibold text-slate-500 whitespace-nowrap">
-          {filteredList.length} {filteredList.length === 1 ? 'lançamento' : 'lançamentos'}
+        <span className="text-xs font-medium text-slate-400 whitespace-nowrap tnum">
+          {filteredList.length} {filteredList.length === 1 ? 'registro' : 'registros'}
         </span>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setIsImportModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-[#00A855] text-xs font-bold transition-all shadow-2xs cursor-pointer active:scale-95"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 hover:bg-emerald-100/80 border border-emerald-200/70 text-emerald-700 text-xs font-semibold transition-all shadow-subtle cursor-pointer active:scale-95"
             title="Importar faturas PDF ou planilhas Excel/CSV"
           >
             <FileSpreadsheet className="w-3.5 h-3.5" />
@@ -497,7 +497,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                 exportTransactionsToCSV(filteredList);
               }
             }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-bold transition-all shadow-2xs cursor-pointer active:scale-95"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white hover:bg-slate-50 border border-slate-200/80 text-slate-700 text-xs font-semibold transition-all shadow-subtle cursor-pointer active:scale-95"
             title={isPremium ? 'Baixar planilha CSV' : 'Recurso Premium: Exportação CSV'}
           >
             <Download className="w-3.5 h-3.5 text-slate-500" />
@@ -509,33 +509,32 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
 
       {/* Date Groups */}
       {grouped.length === 0 ? (
-        <div className="bg-white rounded-3xl p-8 border border-slate-100 text-center shadow-card mt-4">
-          <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-3">
+        <div className="bg-white rounded-3xl p-8 border border-slate-200/60 text-center shadow-card mt-2">
+          <div className="w-12 h-12 rounded-2xl bg-slate-50 text-slate-400 border border-slate-100 flex items-center justify-center mx-auto mb-3">
             <Inbox className="w-6 h-6" />
           </div>
-          <h4 className="text-sm font-bold text-slate-800">
+          <h4 className="text-sm font-semibold text-slate-800">
             Nenhum lançamento no período
           </h4>
           <p className="text-xs text-slate-400 mt-1">
-            Utilize o botão "Adicionar Despesa" ou "Adicionar Receita" para registrar seu primeiro lançamento.
+            Utilize o botão de registrar movimentação para criar seu primeiro lançamento.
           </p>
         </div>
       ) : (
-        <div className="space-y-5 pt-1">
+        <div className="space-y-4 pt-1">
           {grouped.map(grp => (
-            <div key={grp.label} className="space-y-2.5">
-              <h4 className="text-xs font-semibold text-slate-500 px-1">
+            <div key={grp.label} className="space-y-2">
+              <h4 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 px-1">
                 {grp.label}
               </h4>
 
-              <div className="space-y-2.5">
+              <div className="space-y-2">
                 {grp.items.map(tx => {
                   const isIncome = tx.type === 'income';
                   const display = getTransactionDisplay(tx);
                   const {
                     icon: Icon,
                     bg,
-                    color,
                   } = getItemVisuals(tx.description, tx.category, isIncome);
 
                   const handleClick = () => {
@@ -550,27 +549,27 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                     <div
                       key={tx.id}
                       onClick={handleClick}
-                      className="bg-white rounded-2xl p-4 border border-slate-100 shadow-card flex items-center justify-between cursor-pointer hover:border-slate-200 transition-all active:scale-[0.99]"
+                      className="bg-white rounded-2xl p-3.5 sm:p-4 border border-slate-200/60 shadow-card flex items-center justify-between cursor-pointer hover:border-slate-300 hover:shadow-card-hover transition-all active:scale-[0.99]"
                     >
-                      <div className="flex items-center gap-3.5 min-w-0">
+                      <div className="flex items-center gap-3 min-w-0">
                         <div
-                          className={`w-11 h-11 rounded-xl ${bg} flex items-center justify-center shrink-0 shadow-sm`}
+                          className={`w-10 h-10 rounded-xl ${bg} border flex items-center justify-center shrink-0 shadow-subtle`}
                         >
-                          <Icon className={`w-5 h-5 ${color}`} />
+                          <Icon className="w-4.5 h-4.5" />
                         </div>
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <h5 className="text-sm font-bold text-slate-900 truncate">
+                            <h5 className="text-sm font-semibold text-slate-900 truncate">
                               {display.title}
                             </h5>
                             {display.installmentBadge && (
-                              <span className="px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200/80 text-[10px] font-extrabold font-mono shrink-0">
+                              <span className="px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200 text-[10px] font-medium tnum shrink-0">
                                 {display.installmentBadge}
                               </span>
                             )}
                             {display.statusBadge && (
                               <span
-                                className={`px-1.5 py-0.2 rounded-md text-[10px] font-bold border ${display.statusBadge.bg} ${display.statusBadge.text} ${display.statusBadge.border}`}
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${display.statusBadge.bg} ${display.statusBadge.text} ${display.statusBadge.border}`}
                               >
                                 {display.statusBadge.label}
                               </span>
@@ -579,7 +578,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                           <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1.5 truncate">
                             <span>{display.subtitle}</span>
                             <span>•</span>
-                            <span>
+                            <span className="tnum">
                               {new Date(tx.created_at).toLocaleTimeString('pt-BR', {
                                 hour: '2-digit',
                                 minute: '2-digit',
@@ -591,8 +590,8 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
 
                       <div className="text-right shrink-0 ml-3">
                         <span
-                          className={`text-sm font-extrabold block font-mono ${
-                            isIncome ? 'text-[#00D26A]' : 'text-slate-900'
+                          className={`text-sm font-bold block tnum ${
+                            isIncome ? 'text-emerald-600' : 'text-slate-900'
                           }`}
                         >
                           {isIncome ? '+ ' : '- '}
