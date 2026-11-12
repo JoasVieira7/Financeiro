@@ -671,7 +671,7 @@ export const GoalsView: React.FC = () => {
       {/* Modal 1: Adicionar Nova Meta */}
       {isAddOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in">
-          <div className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-2xl animate-scale-in">
+          <div className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-2xl animate-scale-in overflow-hidden">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-[#00D26A]" />
@@ -792,28 +792,18 @@ export const GoalsView: React.FC = () => {
                     <label className="text-xs font-bold text-slate-700 block mb-1">
                       Prazo Estimado (Opcional)
                     </label>
-                    <div className="relative w-full">
-                      <div className="w-full flex items-center justify-between text-xs px-3.5 py-3 rounded-2xl border border-slate-200 bg-white text-slate-900 transition-all">
+                    <div className="relative w-full rounded-2xl border border-slate-200 bg-white overflow-hidden transition-all focus-within:border-[#00D26A]">
+                      {/* Visual alinhado com ícone e texto formatado */}
+                      <div className="w-full flex items-center justify-between text-xs px-3.5 py-3 pointer-events-none pr-10">
                         <div className="flex items-center gap-2 min-w-0">
                           <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
                           <span className={deadline ? 'text-slate-900 font-medium truncate' : 'text-slate-400 truncate'}>
                             {deadline ? formatDeadlineDisplay(deadline) : 'Selecionar data de conclusão'}
                           </span>
                         </div>
-                        {deadline && (
-                          <button
-                            type="button"
-                            onClick={e => {
-                              e.stopPropagation();
-                              setDeadline('');
-                            }}
-                            className="w-5 h-5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center shrink-0 cursor-pointer z-20"
-                            title="Remover prazo"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        )}
                       </div>
+
+                      {/* Input nativo que captura o toque de forma contida e invisível */}
                       <input
                         type="date"
                         value={deadline}
@@ -821,6 +811,22 @@ export const GoalsView: React.FC = () => {
                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                         aria-label="Prazo Estimado (Opcional)"
                       />
+
+                      {/* Botão limpar data, posicionado acima do input com z-20 */}
+                      {deadline && (
+                        <button
+                          type="button"
+                          onClick={e => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setDeadline('');
+                          }}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center cursor-pointer z-20 transition-colors"
+                          title="Remover prazo"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}
@@ -846,7 +852,7 @@ export const GoalsView: React.FC = () => {
       {/* Modal 1.5: Editar Meta Existente */}
       {editingGoal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in">
-          <div className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-2xl animate-scale-in">
+          <div className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-2xl animate-scale-in overflow-hidden">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <Edit2 className="w-4 h-4 text-[#00D26A]" />
@@ -937,28 +943,18 @@ export const GoalsView: React.FC = () => {
                   <label className="text-xs font-bold text-slate-700 block mb-1">
                     Prazo Estimado (Opcional)
                   </label>
-                  <div className="relative w-full">
-                    <div className="w-full flex items-center justify-between text-xs px-3.5 py-3 rounded-2xl border border-slate-200 bg-white text-slate-900 transition-all">
+                  <div className="relative w-full rounded-2xl border border-slate-200 bg-white overflow-hidden transition-all focus-within:border-[#00D26A]">
+                    {/* Visual alinhado com ícone e texto formatado */}
+                    <div className="w-full flex items-center justify-between text-xs px-3.5 py-3 pointer-events-none pr-10">
                       <div className="flex items-center gap-2 min-w-0">
                         <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
                         <span className={editDeadline ? 'text-slate-900 font-medium truncate' : 'text-slate-400 truncate'}>
                           {editDeadline ? formatDeadlineDisplay(editDeadline) : 'Selecionar data de conclusão'}
                         </span>
                       </div>
-                      {editDeadline && (
-                        <button
-                          type="button"
-                          onClick={e => {
-                            e.stopPropagation();
-                            setEditDeadline('');
-                          }}
-                          className="w-5 h-5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center shrink-0 cursor-pointer z-20"
-                          title="Remover prazo"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      )}
                     </div>
+
+                    {/* Input nativo que captura o toque de forma contida e invisível */}
                     <input
                       type="date"
                       value={editDeadline}
@@ -966,6 +962,22 @@ export const GoalsView: React.FC = () => {
                       className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                       aria-label="Prazo Estimado (Opcional)"
                     />
+
+                    {/* Botão limpar data, posicionado acima do input com z-20 */}
+                    {editDeadline && (
+                      <button
+                        type="button"
+                        onClick={e => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setEditDeadline('');
+                        }}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center cursor-pointer z-20 transition-colors"
+                        title="Remover prazo"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
@@ -991,7 +1003,7 @@ export const GoalsView: React.FC = () => {
       {/* Modal 2: Adicionar ou Retirar Valor da Meta */}
       {activeGoalForAction && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in">
-          <div className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-2xl animate-scale-in">
+          <div className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-2xl animate-scale-in overflow-hidden">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 {actionType === 'deposit' ? (
@@ -1070,7 +1082,7 @@ export const GoalsView: React.FC = () => {
       {/* Modal 3: Histórico de Contribuições da Meta */}
       {historyGoal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in">
-          <div className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-2xl animate-scale-in max-h-[85vh] flex flex-col">
+          <div className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-2xl animate-scale-in max-h-[85vh] flex flex-col overflow-hidden">
             <div className="flex items-center justify-between mb-3 pb-3 border-b border-slate-100">
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <History className="w-4 h-4 text-[#00D26A]" />
@@ -1133,7 +1145,7 @@ export const GoalsView: React.FC = () => {
       {/* Modal 4: Editar Teto da Categoria */}
       {editingCategory && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in">
-          <div className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-2xl animate-scale-in">
+          <div className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-2xl animate-scale-in overflow-hidden">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-base font-bold text-slate-900">
                 Teto para {editingCategory.category}

@@ -37,15 +37,30 @@
     }
   }
 
-  /* Correção de contenção e alinhamento de input date no iOS Safari */
-  input[type="date"] {
+  /* Correção de contenção e alinhamento de inputs de data/hora no iOS Safari e WebKit */
+  input[type="date"],
+  input[type="time"],
+  input[type="datetime-local"] {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    width: 100%;
     max-width: 100%;
+    min-width: 0;
     box-sizing: border-box;
+    overflow: hidden;
   }
 
   input[type="date"]::-webkit-date-and-time-value {
     text-align: left;
     margin: 0;
+    padding: 0;
+    min-height: 1.25rem;
+    line-height: normal;
+  }
+
+  input[type="date"]::-webkit-datetime-edit {
+    display: inline-flex;
     padding: 0;
   }
 }
