@@ -10,7 +10,7 @@ interface AuthContextType {
   isDemo: boolean;
   hasSeenOnboarding: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
-  signUp: (email: string, password: string, fullName: string) => Promise<{ error: string | null }>;
+  signUp: (email: string, password: string, fullName: string) => Promise<{ error: string | null; emailConfirmationRequired?: boolean }>;
   signInWithOAuth: (provider: 'google' | 'apple') => Promise<{ error: string | null }>;
   startDemoSession: () => void;
   resetPassword: (email: string) => Promise<{ error: string | null }>;
@@ -176,13 +176,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const translateAuthError = (message: string): string => {
+    const lower = (message || '').toLowerCase();
+    if (lower.includes('user already registered') || lower.includes('already exists')) {
+      return 'Este e-mail já está cadastrado. Tente fazer login ou solicite a recuperação de senha.';
+    }
+    if (lower.includes('invalid login credentials') || lower.includes('invalid credentials')) {
+      return 'E-mail ou senha incorretos. Verifique suas credenciais.';
+    }
+    if (lower.includes('email not confirmed')) {
+      return 'Seu e-mail ainda não foi confirmado. Verifique sua caixa de entrada e spam para ativar a conta.';
+    }
+    if (lower.includes('password should be at least') || lower.includes('password is too short')) {
+      return 'A senha deve conter no mínimo 6 caracteres.';
+    }
+    if (lower.includes('rate limit') || lower.includes('too many requests')) {
+      return 'Muitas tentativas em pouco tempo. Por segurança, aguarde alguns minutos e tente novamente.';
+    }
+    if (lower.includes('invalid email') || lower.includes('valid email')) {
+      return 'Formato de e-mail inválido. Verifique o endereço digitado.';
+    }
+    return message || 'Ocorreu um erro na autenticação.';
+  };
+
   const signIn = async (email: string, password: string): Promise<{ error: string | null }> => {
     if (isSupabaseConfigured) {
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
-      if (error) return { error: error.message };
+      if (error) return { error: translateAuthError(error.message) };
       if (data.user) {
         setUser({ id: data.user.id, email: data.user.email || '' });
         await fetchSupabaseProfile(data.user.id, data.user.email || '');
@@ -197,21 +220,46 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   };
 
-  const signUp = async (email: string, password: string, fullName: string): Promise<{ error: string | null }> => {
+  const signUp = async (
+    email: string,
+    password: string,
+    fullName: string
+  ): Promise<{ error: string | null; emailConfirmationRequired?: boolean }> => {
     if (isSupabaseConfigured) {
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
           data: { full_name: fullName },
+          emailRedirectTo: window.location.origin,
         },
       });
-      if (error) return { error: error.message };
-      if (data.user) {
+
+      if (error) return { error: translateAuthError(error.message) };
+
+      // Se o usuário já existia previamente, o Supabase retorna identities vazio
+      if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+        return {
+          error: 'Este e-mail já está cadastrado no sistema. Por favor, faça login ou recupere sua senha.',
+        };
+      }
+
+      // Se a confirmação de e-mail estiver habilitada, data.session virá como null
+      if (data.user && !data.session) {
+        return {
+          error: null,
+          emailConfirmationRequired: true,
+        };
+      }
+
+      // Se a sessão foi iniciada imediatamente (ex: auto-confirm ativado no Supabase)
+      if (data.user && data.session) {
         setUser({ id: data.user.id, email: data.user.email || '' });
         await fetchSupabaseProfile(data.user.id, data.user.email || '');
         setIsDemo(false);
+        return { error: null, emailConfirmationRequired: false };
       }
+
       return { error: null };
     }
 

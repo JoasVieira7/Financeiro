@@ -60,8 +60,26 @@ export const BalanceOverview: React.FC<BalanceOverviewProps> = () => {
 
   return (
     <div className="space-y-3">
-      {/* 1. Discrete Budget Alert Banners (80%, 90%, 100%) */}
-      {stats.budgetAlertLevel === 'warning_80' && (
+      {/* 1. Discrete Budget Alert Banners */}
+      {stats.isBudgetNegative && (
+        <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center justify-between gap-2 animate-fade-in shadow-xs">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>
+              Atenção: Sua meta mensal de {formatCurrency(currentMonthlyTarget)} está comprometida em{' '}
+              <strong>{formatCurrency(stats.deficitAmount)}</strong>.
+            </span>
+          </div>
+          <button
+            onClick={handleOpenEdit}
+            className="text-[11px] text-rose-950 underline font-bold whitespace-nowrap cursor-pointer"
+          >
+            Ajustar
+          </button>
+        </div>
+      )}
+
+      {!stats.isBudgetNegative && stats.budgetAlertLevel === 'warning_80' && (
         <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-semibold flex items-center justify-between gap-2 animate-fade-in shadow-xs">
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
@@ -76,7 +94,7 @@ export const BalanceOverview: React.FC<BalanceOverviewProps> = () => {
         </div>
       )}
 
-      {stats.budgetAlertLevel === 'warning_90' && (
+      {!stats.isBudgetNegative && stats.budgetAlertLevel === 'warning_90' && (
         <div className="p-3 rounded-2xl bg-orange-50 border border-orange-200 text-orange-900 text-xs font-semibold flex items-center justify-between gap-2 animate-fade-in shadow-xs">
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 text-orange-600 shrink-0" />
@@ -91,51 +109,45 @@ export const BalanceOverview: React.FC<BalanceOverviewProps> = () => {
         </div>
       )}
 
-      {stats.budgetAlertLevel === 'exceeded_100' && (
-        <div className="p-3 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center justify-between gap-2 animate-fade-in shadow-xs">
-          <div className="flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-            <span>Limite atingido! O orçamento de {formatCurrency(currentMonthlyBudget)} foi 100% utilizado.</span>
-          </div>
-          <button
-            onClick={handleOpenEdit}
-            className="text-[11px] text-rose-950 underline font-bold whitespace-nowrap cursor-pointer"
-          >
-            Ajustar
-          </button>
-        </div>
-      )}
-
       {/* 2. Top Side-by-Side Cards (Mês) */}
       <div className="grid grid-cols-2 gap-3 sm:gap-4">
-        {/* Card 1: Saldo Disponível */}
+        {/* Card 1: Saldo Disponível para Gastos */}
         <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-slate-200/60 shadow-card hover:shadow-card-hover transition-all flex flex-col justify-between relative group">
           <div>
             <div className="flex items-center justify-between">
               <span className="text-[11px] sm:text-xs font-medium text-slate-500 block">
-                Saldo disponível
+                Disponível para gastos
               </span>
               <button
                 onClick={handleOpenEdit}
-                title="Ajustar Orçamento"
+                title="Ajustar Renda e Meta"
                 className="text-slate-400 hover:text-slate-700 transition-colors p-1 rounded-lg hover:bg-slate-100 cursor-pointer"
               >
                 <Edit3 className="w-3.5 h-3.5" />
               </button>
             </div>
-            <div className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight mt-1 tnum">
-              {formatCurrency(stats.remainingBudget)}
+            <div className={`text-xl sm:text-2xl font-bold tracking-tight mt-1 tnum ${stats.isBudgetNegative ? 'text-rose-600' : 'text-slate-900'}`}>
+              {stats.isBudgetNegative ? `- ${formatCurrency(stats.deficitAmount)}` : formatCurrency(stats.remainingBudget)}
+            </div>
+            <div className="text-[10.5px] text-slate-400 mt-1 truncate">
+              Meta: {formatCurrency(currentMonthlyTarget)}
             </div>
           </div>
-          <div className="mt-3 flex items-center gap-1.5">
-            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200/50 px-2 py-0.5 rounded-full">
-              {stats.expenseComparisonPercentage <= 0 ? '✓ ' : '+ '}
-              {Math.abs(stats.expenseComparisonPercentage || 12)}% vs mês ant.
-            </span>
+          <div className="mt-2.5 flex items-center gap-1.5">
+            {stats.isBudgetNegative ? (
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-700 bg-rose-50 border border-rose-200/60 px-2 py-0.5 rounded-full">
+                Meta comprometida
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200/50 px-2 py-0.5 rounded-full">
+                {stats.expenseComparisonPercentage <= 0 ? '✓ ' : '+ '}
+                {Math.abs(stats.expenseComparisonPercentage || 12)}% vs mês ant.
+              </span>
+            )}
           </div>
         </div>
 
-        {/* Card 2: Gastos Pagos (Mês) */}
+        {/* Card 2: Gastos Pagos e Comprometidos (Mês) */}
         <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-slate-200/60 shadow-card hover:shadow-card-hover transition-all flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between">
@@ -143,7 +155,7 @@ export const BalanceOverview: React.FC<BalanceOverviewProps> = () => {
                 Gastos pagos
               </span>
               {stats.monthlyPendingExpense > 0 && (
-                <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200/50 px-1.5 py-0.5 rounded-md">
+                <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200/50 px-1.5 py-0.5 rounded-md" title="Compromissos pendentes a vencer">
                   +{formatCurrency(stats.monthlyPendingExpense)}
                 </span>
               )}
@@ -151,10 +163,13 @@ export const BalanceOverview: React.FC<BalanceOverviewProps> = () => {
             <div className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight mt-1 tnum">
               {formatCurrency(stats.monthlyExpense)}
             </div>
+            <div className="text-[10.5px] text-slate-400 mt-1 truncate">
+              Comprometido: {formatCurrency(stats.totalCommittedMonth)}
+            </div>
           </div>
-          <div className="mt-3 flex items-center justify-between">
+          <div className="mt-2.5 flex items-center justify-between">
             <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-700 bg-slate-50 border border-slate-200/60 px-2 py-0.5 rounded-full">
-              {stats.budgetUsedPercentage}% do teto
+              {stats.budgetUsedPercentage}% da renda
             </span>
           </div>
         </div>
@@ -212,41 +227,41 @@ export const BalanceOverview: React.FC<BalanceOverviewProps> = () => {
             </div>
 
             <form onSubmit={handleSaveBudget} className="space-y-4">
-              {/* Campo 1: Orçamento Mensal */}
+              {/* Campo 1: Renda Mensal */}
               <div>
                 <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  Orçamento Total do Mês (R$)
+                  Renda Mensal (R$)
                 </label>
                 <input
                   type="number"
                   step="0.01"
                   required
-                  placeholder="Ex: 3500.00"
+                  placeholder="Ex: 2000.00"
                   value={budgetInputStr}
                   onChange={e => setBudgetInputStr(e.target.value)}
                   className="w-full text-base sm:text-sm tnum px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all text-slate-900"
                 />
                 <span className="text-[11px] text-slate-400 mt-1 block">
-                  Defina o limite total de gastos planejados para o mês.
+                  Informe quanto você recebe ou dispõe no mês.
                 </span>
               </div>
 
               {/* Campo 2: Meta de Economia Mensal */}
               <div>
                 <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  Meta de Economia Mensal (R$)
+                  Meta para Guardar neste Mês (R$)
                 </label>
                 <input
                   type="number"
                   step="0.01"
                   required
-                  placeholder="Ex: 1000.00"
+                  placeholder="Ex: 400.00"
                   value={targetInputStr}
                   onChange={e => setTargetInputStr(e.target.value)}
                   className="w-full text-base sm:text-sm tnum px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all text-slate-900"
                 />
                 <span className="text-[11px] text-slate-400 mt-1 block">
-                  Defina quanto você deseja poupar ou investir neste mês.
+                  Quanto deseja reservar/guardar exclusivamente neste mês.
                 </span>
               </div>
 

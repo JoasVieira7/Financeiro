@@ -390,7 +390,7 @@ export const ProfileView: React.FC<ProfileViewProps> = () => {
               </div>
               <div>
                 <h5 className="text-sm font-extrabold text-slate-900 leading-tight">
-                  {isPremium ? 'Financeiro Express Premium' : 'Plano Gratuito'}
+                  {isPremium ? 'Fluxo Financeiro Premium' : 'Plano Gratuito'}
                 </h5>
                 <p className="text-xs text-slate-400 font-medium mt-0.5">
                   {isPremium
@@ -624,7 +624,7 @@ export const ProfileView: React.FC<ProfileViewProps> = () => {
                   Rever tutorial
                 </span>
                 <span className="text-xs text-slate-400 block truncate leading-tight">
-                  Veja novamente como usar o Financeiro Express
+                  Veja novamente como usar o Fluxo Financeiro
                 </span>
               </div>
             </div>

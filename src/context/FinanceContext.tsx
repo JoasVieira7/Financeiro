@@ -32,7 +32,9 @@ import {
   isTransactionPaid,
   getTransactionStatus,
   formatMonthYear,
+  formatCurrency,
 } from '../lib/formatters';
+import { generateInvoiceAlerts } from '../lib/invoiceNotificationEngine';
 import {
   monthlyToWeekly,
   weeklyToMonthly,
@@ -184,7 +186,7 @@ const LOCAL_STORAGE_CAT_LIMITS_KEY = 'finexpress_cat_limits';
 const LOCAL_STORAGE_NOTIFS_LIST_KEY = 'finexpress_user_notifications';
 
 export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, profile, isDemo } = useAuth();
+  const { user, profile, isDemo, notificationsEnabled } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [goals, setGoals] = useState<SavingsGoal[]>([]);
   const [goalContributions, setGoalContributions] = useState<GoalContribution[]>([]);
@@ -322,7 +324,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
           {
             id: 'notif-welcome',
             user_id: user.id,
-            title: 'Bem-vindo ao Financeiro Express! 🎉',
+            title: 'Bem-vindo ao Fluxo Financeiro! 🎉',
             message: 'Acompanhe seus lançamentos, despesas e metas semanais ou mensais em tempo real.',
             type: 'system',
             is_read: false,
@@ -378,6 +380,59 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       };
     }
   }, [user?.id, isDemo]);
+
+  // ETAPA 34: Detecção ativa e inteligente de vencimentos de faturas/compromissos
+  useEffect(() => {
+    if (!user?.id || transactions.length === 0) return;
+
+    const newAlerts = generateInvoiceAlerts(
+      transactions,
+      notifications,
+      user.id,
+      notificationsEnabled,
+      formatCurrency
+    );
+
+    if (newAlerts.length === 0) return;
+
+    // Dispara push do sistema para cada alerta novo
+    newAlerts.forEach(alert => {
+      if (alert.shouldPush) {
+        dispatchSystemPushNotification(alert.notification.title, {
+          body: alert.notification.message,
+        });
+      }
+    });
+
+    const notifsToAdd: AppNotification[] = newAlerts.map(a => ({
+      ...a.notification,
+      id: a.notification.id || `notif-due-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+    }));
+
+    // Se estiver no Supabase, persiste na tabela notifications
+    if (isSupabaseConfigured && !isDemo) {
+      supabase
+        .from('notifications')
+        .insert(notifsToAdd)
+        .then(({ error }) => {
+          if (error && !error.message?.includes('duplicate key')) {
+            console.warn('Erro ao persistir alertas de fatura no Supabase:', error);
+          }
+        });
+    }
+
+    // Atualiza estado local
+    setNotifications(prev => {
+      const existingKeys = new Set(prev.map(p => p.dedup_key).filter(Boolean));
+      const fresh = notifsToAdd.filter(n => !existingKeys.has(n.dedup_key));
+      if (fresh.length === 0) return prev;
+      const merged = [...fresh, ...prev];
+      if (isDemo || !isSupabaseConfigured) {
+        localStorage.setItem(LOCAL_STORAGE_NOTIFS_LIST_KEY, JSON.stringify(merged));
+      }
+      return merged;
+    });
+  }, [transactions, user?.id, notificationsEnabled, isDemo]);
 
   // Add transaction (validates amount, guards against rapid duplicates)
   const addTransaction = async (
@@ -1981,22 +2036,27 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       Math.round((monthlySavedAmount / (monthlyTarget || 1)) * 100)
     );
 
-    // Remaining budget and percentage considerando o total comprometido (pagas + pendentes a vencer)
-    const remainingBudget = Math.max(0, monthlyBudget - totalCommittedMonth);
-    const budgetUsedPercentage = Math.min(
-      100,
-      Math.round((totalCommittedMonth / (monthlyBudget || 1)) * 100)
-    );
+    // ETAPA 34: Fórmula Oficial do Orçamento e Meta Mensal:
+    // Orçamento mensal disponível = Renda mensal − meta de economia mensal − despesas e compromissos considerados no mês
+    const rawRemainingBudget = roundToCents(monthlyBudget - monthlyTarget - totalCommittedMonth);
+    const remainingBudget = rawRemainingBudget;
+    const isBudgetNegative = remainingBudget < 0;
+    const deficitAmount = isBudgetNegative ? Math.abs(remainingBudget) : 0;
+
+    // Percentual consumido: (despesas + meta de economia) / renda mensal
+    const budgetUsedPercentage = monthlyBudget > 0
+      ? Math.round(((totalCommittedMonth + monthlyTarget) / monthlyBudget) * 100)
+      : 100;
 
     // Métricas para o período semanal do orçamento
     const budgetPeriod: 'weekly' | 'monthly' = profile?.budget_period_preference || 'monthly';
     const weeklyBudget = monthlyToWeekly(monthlyBudget);
     const weeklyExpense = thisWeekExpense;
-    const weeklyRemainingBudget = Math.max(0, weeklyBudget - weeklyExpense);
-    const weeklyBudgetUsedPercentage = Math.min(
-      100,
-      Math.round((weeklyExpense / (weeklyBudget || 1)) * 100)
-    );
+    const weeklyTargetAmount = weeklyTarget || 250;
+    const weeklyRemainingBudget = roundToCents(weeklyBudget - weeklyTargetAmount - weeklyExpense);
+    const weeklyBudgetUsedPercentage = weeklyBudget > 0
+      ? Math.round(((weeklyExpense + weeklyTargetAmount) / weeklyBudget) * 100)
+      : 100;
 
     // Projeções efetivas sincronizadas com o período principal selecionado
     const effectiveBudget = budgetPeriod === 'weekly' ? weeklyBudget : monthlyBudget;
@@ -2008,9 +2068,9 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const effectiveSavingTarget = budgetPeriod === 'weekly' ? weeklyTarget : monthlyTarget;
     const effectiveGoalPercentage = budgetPeriod === 'weekly' ? weeklyGoalPercentage : monthlyGoalPercentage;
 
-    // Budget alert levels: 80%, 90%, 100%
+    // Budget alert levels: normal, 80%, 90%, 100% (ou deficit/estouro)
     let budgetAlertLevel: 'normal' | 'warning_80' | 'warning_90' | 'exceeded_100' = 'normal';
-    if (budgetUsedPercentage >= 100) {
+    if (isBudgetNegative || budgetUsedPercentage >= 100) {
       budgetAlertLevel = 'exceeded_100';
     } else if (budgetUsedPercentage >= 90) {
       budgetAlertLevel = 'warning_90';
@@ -2018,11 +2078,14 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       budgetAlertLevel = 'warning_80';
     }
 
-    // Daily allowance calculation
+    // Gasto diário recomendado: Orçamento ainda disponível ÷ dias restantes do mês
+    // Se não houver dias restantes, não divide por zero. Se saldo for <= 0, diário é 0.
     const daysInCurrentMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
     const currentDay = now.getDate();
-    const remainingDaysInMonth = Math.max(1, daysInCurrentMonth - currentDay + 1);
-    const dailyAllowance = remainingBudget > 0 ? remainingBudget / remainingDaysInMonth : 0;
+    const remainingDaysInMonth = Math.max(0, daysInCurrentMonth - currentDay + 1);
+    const dailyAllowance = (remainingBudget > 0 && remainingDaysInMonth > 0)
+      ? roundToCents(remainingBudget / remainingDaysInMonth)
+      : 0;
 
     // Total accumulated in savings goals
     const totalSavedInGoals = goals.reduce((acc, g) => acc + Number(g.current_amount || 0), 0);
@@ -2101,6 +2164,9 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       previousMonthExpense,
       expenseComparisonPercentage,
       totalSavedInGoals,
+      monthlySavingTarget: monthlyTarget,
+      isBudgetNegative,
+      deficitAmount,
       categoryBreakdown,
     };
   }, [transactions, profile, goals, customCatLimits]);

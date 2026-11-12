@@ -39,7 +39,7 @@ export const PlanComparisonModal: React.FC<PlanComparisonModalProps> = ({
             </div>
             <div>
               <h3 className="font-extrabold text-slate-900 text-base leading-tight">
-                Planos Financeiro Express
+                Planos Fluxo Financeiro
               </h3>
               <p className="text-xs text-slate-400 mt-0.5">
                 Escolha a melhor experiência para suas finanças
@@ -115,7 +115,7 @@ export const PlanComparisonModal: React.FC<PlanComparisonModalProps> = ({
             </ul>
           </div>
 
-          {/* Card: Financeiro Express Premium */}
+          {/* Card: Fluxo Financeiro Premium */}
           <div className="p-4 rounded-2xl border-2 border-[#00D26A] bg-[#E8FBF0]/30 shadow-xs relative">
             <span className="absolute -top-2.5 right-4 text-[10px] bg-[#00D26A] text-white font-extrabold px-2.5 py-0.5 rounded-full shadow-2xs">
               COMPLETO
@@ -124,7 +124,7 @@ export const PlanComparisonModal: React.FC<PlanComparisonModalProps> = ({
               <div className="flex items-center gap-2">
                 <Crown className="w-4 h-4 text-[#00D26A]" />
                 <h4 className="text-sm font-extrabold text-slate-900">
-                  Financeiro Express Premium
+                  Fluxo Financeiro Premium
                 </h4>
               </div>
               <span className="text-[11px] font-extrabold text-[#00D26A]">

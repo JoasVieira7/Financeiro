@@ -17,7 +17,7 @@ export const TermsOfServiceModal: React.FC<TermsOfServiceModalProps> = ({ isOpen
             <div className="w-9 h-9 rounded-xl bg-[#E8FBF0] flex items-center justify-center text-[#00D26A]">
               <Shield className="w-5 h-5 stroke-[2.5]" />
             </div>
-            <h3 className="font-extrabold text-slate-900 text-base">Termos de Uso - Financeiro Express</h3>
+            <h3 className="font-extrabold text-slate-900 text-base">Termos de Uso - Fluxo Financeiro</h3>
           </div>
           <button
             onClick={onClose}
@@ -32,12 +32,12 @@ export const TermsOfServiceModal: React.FC<TermsOfServiceModalProps> = ({ isOpen
 
           <h4 className="font-bold text-slate-900 text-sm">1. Aceitação dos Termos</h4>
           <p>
-            Ao criar uma conta ou utilizar o aplicativo Financeiro Express, você concorda expressamente com estes Termos de Uso e com nossa Política de Privacidade.
+            Ao criar uma conta ou utilizar o aplicativo Fluxo Financeiro, você concorda expressamente com estes Termos de Uso e com nossa Política de Privacidade.
           </p>
 
           <h4 className="font-bold text-slate-900 text-sm">2. Objeto e Serviços</h4>
           <p>
-            O Financeiro Express é uma ferramenta SaaS de gestão financeira pessoal e acompanhamento de metas de economia. O aplicativo não é uma instituição financeira e não realiza movimentações bancárias diretamente sem sua autorização explícita.
+            O Fluxo Financeiro é uma ferramenta SaaS de gestão financeira pessoal e acompanhamento de metas de economia. O aplicativo não é uma instituição financeira e não realiza movimentações bancárias diretamente sem sua autorização explícita.
           </p>
 
           <h4 className="font-bold text-slate-900 text-sm">3. Planos e Assinaturas (SaaS)</h4>

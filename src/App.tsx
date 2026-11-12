@@ -13,11 +13,15 @@ import { ExpressPixModal } from './components/express/ExpressPixModal';
 import { AuthModal } from './components/auth/AuthModal';
 import { OnboardingModal } from './components/onboarding/OnboardingModal';
 import { NotificationsModal } from './components/notifications/NotificationsModal';
+import { SplashScreen } from './components/common/SplashScreen';
 import { useAuth } from './context/AuthContext';
 import { Transaction } from './types';
 
 export const App: React.FC = () => {
   const { user, loading, hasSeenOnboarding } = useAuth();
+  const [isSplashVisible, setIsSplashVisible] = useState(() => {
+    return typeof window !== 'undefined' ? !sessionStorage.getItem('fluxo_splash_shown') : false;
+  });
   const [activeTab, setActiveTab] = useState<TabType>('home');
   const [isExpressPixOpen, setIsExpressPixOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
@@ -39,9 +43,20 @@ export const App: React.FC = () => {
     setEditingTransaction(null);
   };
 
+  const handleSplashFinish = () => {
+    try {
+      sessionStorage.setItem('fluxo_splash_shown', 'true');
+    } catch {}
+    setIsSplashVisible(false);
+  };
+
+  if (isSplashVisible) {
+    return <SplashScreen onFinish={handleSplashFinish} />;
+  }
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-[#C4F4D8] via-[#E8FAF0] via-35% to-[#FFFFFF] flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-b from-[#E8FAF0] via-[#F4FBF7] to-[#FFFFFF] flex items-center justify-center">
         <div className="w-10 h-10 border-4 border-[#00D26A] border-t-transparent rounded-full animate-spin" />
       </div>
     );

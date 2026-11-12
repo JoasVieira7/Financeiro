@@ -1,6 +1,6 @@
 {
   "appId": "com.financeiroexpress.app",
-  "appName": "Financeiro Express",
+  "appName": "Fluxo Financeiro",
   "webDir": "dist",
   "bundledWebRuntime": false,
   "server": {
