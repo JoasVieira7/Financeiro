@@ -19,7 +19,7 @@ export type PaymentMethod =
 
 export type TransactionType = 'expense' | 'income';
 
-export type TransactionStatus = 'paid' | 'pending' | 'overdue';
+export type TransactionStatus = 'paid' | 'pending' | 'overdue' | 'unknown';
 
 export interface Transaction {
   id: string;

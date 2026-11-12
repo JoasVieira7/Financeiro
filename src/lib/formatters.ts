@@ -148,7 +148,7 @@ export function isTransactionPaid(tx: {
   created_at: string;
 }): boolean {
   if (tx.status === 'paid') return true;
-  if (tx.status === 'pending' || tx.status === 'overdue') return false;
+  if (tx.status === 'pending' || tx.status === 'overdue' || tx.status === 'unknown') return false;
   if (tx.paid_at) return true;
   // Se for legado sem status explícito:
   if (!tx.installment_group_id) return true; // compras à vista antigas sempre pagas
@@ -161,8 +161,9 @@ export function getTransactionStatus(tx: {
   paid_at?: string | null;
   installment_group_id?: string;
   created_at: string;
-}): 'paid' | 'pending' | 'overdue' {
+}): 'paid' | 'pending' | 'overdue' | 'unknown' {
   if (tx.status === 'paid' || tx.paid_at) return 'paid';
+  if (tx.status === 'unknown') return 'unknown';
   const dueDate = getTransactionDueDate(tx);
   const now = new Date();
   // Se ainda não venceu (ou é hoje):
@@ -173,7 +174,7 @@ export function getTransactionStatus(tx: {
   return 'overdue';
 }
 
-export function getStatusBadge(status: 'paid' | 'pending' | 'overdue') {
+export function getStatusBadge(status: 'paid' | 'pending' | 'overdue' | 'unknown') {
   switch (status) {
     case 'paid':
       return {
@@ -188,6 +189,13 @@ export function getStatusBadge(status: 'paid' | 'pending' | 'overdue') {
         bg: 'bg-rose-50',
         text: 'text-rose-700',
         border: 'border-rose-200/80',
+      };
+    case 'unknown':
+      return {
+        label: 'A revisar',
+        bg: 'bg-slate-100',
+        text: 'text-slate-600',
+        border: 'border-slate-200/80',
       };
     case 'pending':
     default:

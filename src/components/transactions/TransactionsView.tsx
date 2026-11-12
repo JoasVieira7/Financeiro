@@ -79,7 +79,7 @@ export function exportTransactionsToCSV(transactions: Transaction[]): void {
       dPurchase.toLocaleDateString('pt-BR'),
       dDue.toLocaleDateString('pt-BR'),
       dPaid,
-      status === 'paid' ? 'Paga' : status === 'overdue' ? 'Vencida' : 'Pendente',
+      status === 'paid' ? 'Paga' : status === 'overdue' ? 'Vencida' : status === 'unknown' ? 'A revisar' : 'Pendente',
       typeStr,
       `"${t.category.replace(/"/g, '""')}"`,
       `"${(t.description || '').replace(/"/g, '""')}"`,

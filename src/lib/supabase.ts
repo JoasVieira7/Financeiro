@@ -1,18 +1,26 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+// Apenas variáveis com prefixo VITE_ são expostas ao bundle do navegador pelo Vite.
+// Nunca referenciar SUPABASE_SERVICE_ROLE_KEY ou qualquer segredo de servidor aqui.
+const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL || '')
+  .trim()
+  .replace(/^['"]|['"]$/g, '');
+
+const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || '')
+  .trim()
+  .replace(/^['"]|['"]$/g, '');
 
 export const isSupabaseConfigured = Boolean(
-  supabaseUrl && 
-  supabaseAnonKey && 
+  supabaseUrl &&
+  supabaseAnonKey &&
   supabaseUrl.startsWith('https://') &&
   !supabaseUrl.includes('placeholder') &&
   !supabaseUrl.includes('seu-projeto') &&
   !supabaseAnonKey.includes('sua-chave')
 );
 
-// Fallback dummy client if credentials aren't set yet to avoid runtime crashes
+// Fallback dummy client quando as credenciais não estão disponíveis,
+// evitando crashes em tempo de execução. Nenhum dado real é enviado.
 export const supabase = isSupabaseConfigured
   ? createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
@@ -25,4 +33,3 @@ export const supabase = isSupabaseConfigured
         persistSession: false,
       },
     });
-

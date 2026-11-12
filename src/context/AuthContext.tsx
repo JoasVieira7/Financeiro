@@ -223,7 +223,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signInWithOAuth = async (provider: 'google' | 'apple'): Promise<{ error: string | null }> => {
     if (!isSupabaseConfigured) {
       return {
-        error: `O login com ${provider === 'google' ? 'Google' : 'Apple'} requer o Supabase configurado com provedor OAuth ativo. Use a opção "Experimentar demonstração" para testar o app.`,
+        error: `O login com ${provider === 'google' ? 'Google' : 'Apple'} requer o Supabase configurado neste ambiente (VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY na Vercel). Use a opção "Experimentar demonstração" para testar o app.`,
       };
     }
     try {

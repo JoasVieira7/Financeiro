@@ -1899,7 +1899,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       .reduce((acc, t) => acc + Number(t.amount), 0);
 
     const monthlyPendingExpense = thisMonthExpenses
-      .filter(t => !isTransactionPaid(t))
+      .filter(t => !isTransactionPaid(t) && t.status !== 'unknown')
       .reduce((acc, t) => acc + Number(t.amount), 0);
 
     const totalCommittedMonth = monthlyPaidExpense + monthlyPendingExpense;
@@ -2139,7 +2139,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         .filter(t => isTransactionPaid(t))
         .reduce((acc, t) => acc + Number(t.amount), 0);
       const totalPending = monthInstallments
-        .filter(t => !isTransactionPaid(t))
+        .filter(t => !isTransactionPaid(t) && t.status !== 'unknown')
         .reduce((acc, t) => acc + Number(t.amount), 0);
 
       monthlyForecast.push({
