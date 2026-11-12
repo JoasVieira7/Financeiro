@@ -36,6 +36,18 @@
       font-size: 16px !important;
     }
   }
+
+  /* Correção de contenção e alinhamento de input date no iOS Safari */
+  input[type="date"] {
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  input[type="date"]::-webkit-date-and-time-value {
+    text-align: left;
+    margin: 0;
+    padding: 0;
+  }
 }
 
 /* Scrollbars */

@@ -54,6 +54,25 @@ function getMonthBounds(): { start: string; end: string } {
   };
 }
 
+function formatDeadlineDisplay(dateStr: string): string {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-');
+  if (parts.length === 3) {
+    const y = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10) - 1;
+    const d = parseInt(parts[2], 10);
+    const dateObj = new Date(y, m, d);
+    if (!isNaN(dateObj.getTime())) {
+      return dateObj.toLocaleDateString('pt-BR', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      });
+    }
+  }
+  return dateStr;
+}
+
 const periodTypeLabel: Record<GoalPeriodType, string> = {
   weekly: 'Semanal',
   monthly: 'Mensal',
@@ -773,12 +792,36 @@ export const GoalsView: React.FC = () => {
                     <label className="text-xs font-bold text-slate-700 block mb-1">
                       Prazo Estimado (Opcional)
                     </label>
-                    <input
-                      type="date"
-                      value={deadline}
-                      onChange={e => setDeadline(e.target.value)}
-                      className="w-full text-xs px-3.5 py-3 rounded-2xl border border-slate-200 text-slate-900 focus:outline-none focus:border-[#00D26A]"
-                    />
+                    <div className="relative w-full">
+                      <div className="w-full flex items-center justify-between text-xs px-3.5 py-3 rounded-2xl border border-slate-200 bg-white text-slate-900 transition-all">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+                          <span className={deadline ? 'text-slate-900 font-medium truncate' : 'text-slate-400 truncate'}>
+                            {deadline ? formatDeadlineDisplay(deadline) : 'Selecionar data de conclusão'}
+                          </span>
+                        </div>
+                        {deadline && (
+                          <button
+                            type="button"
+                            onClick={e => {
+                              e.stopPropagation();
+                              setDeadline('');
+                            }}
+                            className="w-5 h-5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center shrink-0 cursor-pointer z-20"
+                            title="Remover prazo"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                      <input
+                        type="date"
+                        value={deadline}
+                        onChange={e => setDeadline(e.target.value)}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                        aria-label="Prazo Estimado (Opcional)"
+                      />
+                    </div>
                   </div>
                 )}
 
@@ -894,12 +937,36 @@ export const GoalsView: React.FC = () => {
                   <label className="text-xs font-bold text-slate-700 block mb-1">
                     Prazo Estimado (Opcional)
                   </label>
-                  <input
-                    type="date"
-                    value={editDeadline}
-                    onChange={e => setEditDeadline(e.target.value)}
-                    className="w-full text-xs px-3.5 py-3 rounded-2xl border border-slate-200 text-slate-900 focus:outline-none focus:border-[#00D26A]"
-                  />
+                  <div className="relative w-full">
+                    <div className="w-full flex items-center justify-between text-xs px-3.5 py-3 rounded-2xl border border-slate-200 bg-white text-slate-900 transition-all">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+                        <span className={editDeadline ? 'text-slate-900 font-medium truncate' : 'text-slate-400 truncate'}>
+                          {editDeadline ? formatDeadlineDisplay(editDeadline) : 'Selecionar data de conclusão'}
+                        </span>
+                      </div>
+                      {editDeadline && (
+                        <button
+                          type="button"
+                          onClick={e => {
+                            e.stopPropagation();
+                            setEditDeadline('');
+                          }}
+                          className="w-5 h-5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center shrink-0 cursor-pointer z-20"
+                          title="Remover prazo"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      type="date"
+                      value={editDeadline}
+                      onChange={e => setEditDeadline(e.target.value)}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                      aria-label="Prazo Estimado (Opcional)"
+                    />
+                  </div>
                 </div>
               )}
 
