@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { SavingsGoal, TransactionCategory, PLAN_LIMITS, GoalPeriodType } from '../../types';
 import confetti from 'canvas-confetti';
+import { scrollToTopOfCurrentScreen } from '../../lib/scrollUtils';
 
 type GoalFilter = 'all' | 'monthly' | 'custom' | 'completed';
 
@@ -318,12 +319,18 @@ export const GoalsView: React.FC = () => {
           </div>
         </button>
 
-        <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">
-          Metas de Economia
-        </h2>
-        <p className="text-xs text-slate-400 mt-0.5">
-          Gerencie seus objetivos e limites de gastos
-        </p>
+        <div
+          onClick={() => scrollToTopOfCurrentScreen()}
+          className="cursor-pointer select-none"
+          title="Toque para voltar ao topo"
+        >
+          <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">
+            Metas de Economia
+          </h2>
+          <p className="text-xs text-slate-400 mt-0.5">
+            Gerencie seus objetivos e limites de gastos
+          </p>
+        </div>
       </div>
 
       {/* Card 1: Meta de Economia do Mês */}

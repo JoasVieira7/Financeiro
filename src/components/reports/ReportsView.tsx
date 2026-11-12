@@ -17,6 +17,7 @@ import {
   Sliders,
 } from 'lucide-react';
 import { TransactionCategory, PaymentMethod } from '../../types';
+import { scrollToTopOfCurrentScreen } from '../../lib/scrollUtils';
 
 export const ReportsView: React.FC = () => {
   const {
@@ -140,7 +141,11 @@ export const ReportsView: React.FC = () => {
     <div className="space-y-4 animate-fade-in pb-16">
       {/* Title & Period Selector */}
       <div className="flex items-center justify-between">
-        <div>
+        <div
+          onClick={() => scrollToTopOfCurrentScreen()}
+          className="cursor-pointer select-none"
+          title="Toque para voltar ao topo"
+        >
           <h2 className="text-base font-bold text-slate-900">Relatórios & Planejamento</h2>
           <p className="text-xs text-slate-500">Resumo financeiro e despesas fixas</p>
         </div>

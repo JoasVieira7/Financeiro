@@ -2,6 +2,7 @@ import React from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useFinance } from '../../context/FinanceContext';
 import { Bell } from 'lucide-react';
+import { scrollToTopOfCurrentScreen } from '../../lib/scrollUtils';
 
 interface NavbarProps {
   onOpenProfile: () => void;
@@ -28,11 +29,21 @@ export const Navbar: React.FC<NavbarProps> = ({
   const isPremium = profile?.plan_tier === 'premium';
 
   return (
-    <header className="sticky top-0 z-30 w-full bg-[#F8FAFC]/85 backdrop-blur-xl border-b border-slate-200/50 px-4 pt-safe pb-2.5 transition-all">
+    <header
+      onClick={e => {
+        const target = e.target as HTMLElement;
+        if (target.closest('button') || target.closest('[data-interactive="true"]')) {
+          return;
+        }
+        scrollToTopOfCurrentScreen();
+      }}
+      className="sticky top-0 z-30 w-full bg-[#F8FAFC]/85 backdrop-blur-xl border-b border-slate-200/50 px-4 pt-safe pb-2.5 transition-all"
+    >
       <div className="max-w-md sm:max-w-xl md:max-w-2xl lg:max-w-3xl mx-auto flex items-center justify-between">
         {/* Left: User Avatar & Name */}
         <div
           onClick={onOpenProfile}
+          data-interactive="true"
           className="flex items-center gap-3 cursor-pointer select-none py-1 group"
           title="Ver perfil e configurações"
         >

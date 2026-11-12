@@ -19,6 +19,7 @@ import {
   subscribeUserToPush,
   type PushPermissionStatus,
 } from '../../lib/pushNotifications';
+import { scrollToTopOfCurrentScreen } from '../../lib/scrollUtils';
 import {
   Check,
   Award,
@@ -282,7 +283,11 @@ export const ProfileView: React.FC<ProfileViewProps> = () => {
       />
 
       {/* Top Header: "Meu Perfil" */}
-      <div className="px-1 pt-1">
+      <div
+        onClick={() => scrollToTopOfCurrentScreen()}
+        className="px-1 pt-1 cursor-pointer select-none"
+        title="Toque para voltar ao topo"
+      >
         <h2 className="text-[22px] font-extrabold text-slate-900 tracking-tight">
           Meu Perfil
         </h2>

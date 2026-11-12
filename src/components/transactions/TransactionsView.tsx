@@ -35,6 +35,7 @@ import {
   FileSpreadsheet,
 } from 'lucide-react';
 import { Transaction } from '../../types';
+import { scrollToTopOfCurrentScreen } from '../../lib/scrollUtils';
 
 interface TransactionsViewProps {
   onBack?: () => void;
@@ -300,7 +301,11 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
           <div className="w-8" />
         )}
 
-        <h2 className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight">
+        <h2
+          onClick={() => scrollToTopOfCurrentScreen()}
+          className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight cursor-pointer select-none"
+          title="Toque para voltar ao topo"
+        >
           Extrato Financeiro
         </h2>
 

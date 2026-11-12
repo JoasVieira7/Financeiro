@@ -16,6 +16,7 @@ import { NotificationsModal } from './components/notifications/NotificationsModa
 import { SplashScreen } from './components/common/SplashScreen';
 import { useAuth } from './context/AuthContext';
 import { Transaction } from './types';
+import { scrollToTopOfCurrentScreen } from './lib/scrollUtils';
 
 export const App: React.FC = () => {
   const { user, loading, hasSeenOnboarding } = useAuth();
@@ -41,6 +42,16 @@ export const App: React.FC = () => {
   const handleCloseModal = () => {
     setIsExpressPixOpen(false);
     setEditingTransaction(null);
+  };
+
+  const handleTabChange = (tab: TabType) => {
+    if (activeTab === tab) {
+      // Re-clique na mesma aba ativa: rola a tela atual suavemente até o topo
+      scrollToTopOfCurrentScreen();
+    } else {
+      // Navegação para uma aba diferente
+      setActiveTab(tab);
+    }
   };
 
   const handleSplashFinish = () => {
@@ -71,7 +82,7 @@ export const App: React.FC = () => {
       {/* Top Fixed Header */}
       {activeTab === 'home' && (
         <Navbar
-          onOpenProfile={() => setActiveTab('profile')}
+          onOpenProfile={() => handleTabChange('profile')}
           onOpenAuth={() => setIsAuthOpen(true)}
           onOpenNotifications={() => setIsNotificationsOpen(true)}
         />
@@ -86,7 +97,7 @@ export const App: React.FC = () => {
             <BalanceOverview onOpenQuickExpense={() => setIsExpressPixOpen(true)} />
 
             {/* 2. Meta de Economia do Mês */}
-            <MonthlyGoalCard onGoToGoals={() => setActiveTab('goals')} />
+            <MonthlyGoalCard onGoToGoals={() => handleTabChange('goals')} />
 
             {/* 3. Botão Principal: Registrar Transação */}
             <button
@@ -100,11 +111,11 @@ export const App: React.FC = () => {
             </button>
 
             {/* 4. Resumo de Gastos (Donut Chart) */}
-            <CategoryBreakdownCard onGoToReports={() => setActiveTab('reports')} />
+            <CategoryBreakdownCard onGoToReports={() => handleTabChange('reports')} />
 
             {/* 5. Atividade Recente */}
             <RecentTransactions
-              onOpenAll={() => setActiveTab('transactions')}
+              onOpenAll={() => handleTabChange('transactions')}
               onOpenQuickExpense={() => setIsExpressPixOpen(true)}
               onEditTransaction={handleOpenEdit}
             />
@@ -114,7 +125,7 @@ export const App: React.FC = () => {
         {/* TAB 2: EXTRATO / HISTÓRICO */}
         {activeTab === 'transactions' && (
           <TransactionsView
-            onBack={() => setActiveTab('home')}
+            onBack={() => handleTabChange('home')}
             onEditTransaction={handleOpenEdit}
             onNewTransaction={() => {
               setEditingTransaction(null);
@@ -138,7 +149,7 @@ export const App: React.FC = () => {
       {/* Modern Bottom Navigation Bar */}
       <BottomTabs
         activeTab={activeTab}
-        onChangeTab={tab => setActiveTab(tab)}
+        onChangeTab={handleTabChange}
         onOpenQuickExpense={() => {
           setEditingTransaction(null);
           setIsExpressPixOpen(true);
@@ -168,7 +179,7 @@ export const App: React.FC = () => {
       <NotificationsModal
         isOpen={isNotificationsOpen}
         onClose={() => setIsNotificationsOpen(false)}
-        onNavigateToTab={tab => setActiveTab(tab as any)}
+        onNavigateToTab={tab => handleTabChange(tab as any)}
       />
     </div>
   );
