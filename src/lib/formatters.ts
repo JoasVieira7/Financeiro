@@ -130,15 +130,57 @@ export function formatMonthYear(date: Date): string {
   }).format(date);
 }
 
+/**
+ * Faz o parsing seguro de data considerando fuso horário e strings de data.
+ * Se a string for YYYY-MM-DD, faz o parsing local ao meio-dia para evitar deslocamento de fuso.
+ * Se for ISO completo com timestamp (timestamptz), preserva a data/hora exata do cliente.
+ */
+export function parseSafeDate(dateInput: string | Date | undefined | null): Date {
+  if (!dateInput) return new Date();
+  if (dateInput instanceof Date) return isNaN(dateInput.getTime()) ? new Date() : dateInput;
+  const str = String(dateInput).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+    const [y, m, d] = str.split('-').map(Number);
+    return new Date(y, m - 1, d, 12, 0, 0);
+  }
+  const parsed = new Date(str);
+  return isNaN(parsed.getTime()) ? new Date() : parsed;
+}
+
+/**
+ * Identifica estruturadamente se uma transação é uma transferência interna de aporte ou resgate de meta.
+ */
+export function isInternalGoalTransfer(tx: { description?: string; notes?: string }): boolean {
+  if (tx.notes) {
+    if (
+      tx.notes.includes('[movement:goal_deposit]') ||
+      tx.notes.includes('[movement:goal_withdraw]') ||
+      tx.notes.includes('[movement:account_transfer]') ||
+      tx.notes.includes('[goal_transfer]')
+    ) {
+      return true;
+    }
+  }
+  if (tx.description) {
+    if (
+      tx.description.startsWith('Aporte na Meta:') ||
+      tx.description.startsWith('Resgate da Meta:')
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function getTransactionDueDate(tx: {
   due_date?: string;
   created_at: string;
 }): Date {
   if (tx.due_date) {
-    const d = new Date(`${tx.due_date}T12:00:00`);
+    const d = parseSafeDate(tx.due_date);
     if (!isNaN(d.getTime())) return d;
   }
-  return new Date(tx.created_at);
+  return parseSafeDate(tx.created_at);
 }
 
 export function isTransactionPaid(tx: {

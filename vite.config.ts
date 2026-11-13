@@ -15,7 +15,9 @@ export default defineConfig({
         manualChunks: {
           'react-vendor': ['react', 'react-dom'],
           'supabase-vendor': ['@supabase/supabase-js'],
-          'icons': ['lucide-react']
+          'icons': ['lucide-react'],
+          'xlsx-vendor': ['xlsx'],
+          'pdf-vendor': ['pdfjs-dist']
         }
       }
     }

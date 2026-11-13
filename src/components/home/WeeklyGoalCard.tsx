@@ -21,10 +21,9 @@ export const MonthlyGoalCard: React.FC<MonthlyGoalCardProps> = ({ onGoToGoals })
   const target = monthlyTarget;
 
   const percentage =
-    hasNoGoal
+    hasNoGoal || monthlyTarget <= 0
       ? 0
-      : (stats.monthlyGoalPercentage ??
-        (monthlyTarget > 0 ? Math.min(100, Math.round((currentSaved / monthlyTarget) * 100)) : 0));
+      : (stats.monthlyGoalPercentage ?? Math.round((currentSaved / monthlyTarget) * 100));
 
   // Quando a meta está desativada / não definida (Etapa 34.4)
   if (hasNoGoal) {
@@ -73,28 +72,45 @@ export const MonthlyGoalCard: React.FC<MonthlyGoalCardProps> = ({ onGoToGoals })
           <span>Meta de economia mensal</span>
         </button>
 
-        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/60 tnum">
-          {percentage}%
+        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold tnum ${
+          currentSaved < 0
+            ? 'text-amber-700 bg-amber-50 border border-amber-200/60'
+            : 'text-emerald-700 bg-emerald-50 border border-emerald-200/60'
+        }`}>
+          {currentSaved < 0 ? 'Resgate líquido' : `${percentage}%`}
         </span>
       </div>
 
       {/* Modern Rounded Progress Bar */}
       <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden p-0.5 border border-slate-100">
         <div
-          className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-full transition-all duration-700 ease-out"
-          style={{ width: `${Math.min(100, Math.max(percentage > 0 ? 4 : 0, percentage))}%` }}
+          className={`h-full rounded-full transition-all duration-700 ease-out ${
+            currentSaved < 0
+              ? 'bg-amber-400'
+              : 'bg-gradient-to-r from-emerald-500 to-emerald-400'
+          }`}
+          style={{ width: `${Math.min(100, Math.max(0, percentage))}%` }}
         />
       </div>
 
       {/* Subtitle */}
       <div className="flex items-center justify-between text-xs text-slate-500 mt-2.5">
         <span className="tnum font-medium">
-          Economizado: <strong className="text-slate-800 font-semibold">{formatCurrency(currentSaved)}</strong>
+          Economizado:{' '}
+          <strong className={`font-semibold ${currentSaved < 0 ? 'text-amber-600' : 'text-slate-800'}`}>
+            {formatCurrency(currentSaved)}
+          </strong>
         </span>
         <span className="tnum text-slate-400 font-medium">
           Meta: {formatCurrency(target)}
         </span>
       </div>
+
+      {currentSaved < 0 && (
+        <p className="text-[11px] text-amber-600 mt-1.5 font-medium">
+          Os resgates superaram os aportes neste mês ({formatCurrency(currentSaved)}).
+        </p>
+      )}
     </div>
   );
 };

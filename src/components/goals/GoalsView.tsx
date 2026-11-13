@@ -161,10 +161,9 @@ export const GoalsView: React.FC = () => {
   const mainTarget = monthlyTarget;
   const mainSaved = stats.monthlySavedAmount ?? 0;
   const mainPct =
-    hasNoGoal
+    hasNoGoal || monthlyTarget <= 0
       ? 0
-      : (stats.monthlyGoalPercentage ??
-        (monthlyTarget > 0 ? Math.min(100, Math.round((mainSaved / monthlyTarget) * 100)) : 0));
+      : (stats.monthlyGoalPercentage ?? Math.round((mainSaved / monthlyTarget) * 100));
 
   const handleOpenEditMonthlyTarget = () => {
     setMonthlyTargetInputStr(hasNoGoal ? '400' : monthlyTarget.toString());
@@ -428,12 +427,71 @@ export const GoalsView: React.FC = () => {
           />
 
           {/* Subtitle */}
-          <p className="text-xs font-semibold text-slate-500 text-center mt-5">
-            Você economizou {formatCurrency(mainSaved)} da meta mensal de{' '}
-            {formatCurrency(mainTarget)}
-          </p>
+          <div className="text-center mt-5 space-y-1">
+            <div className="flex items-center justify-center gap-2">
+              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold tnum ${
+                mainPct >= 100 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'
+              }`}>
+                {mainPct}% da meta
+              </span>
+            </div>
+            <p className="text-xs font-semibold text-slate-500">
+              Você economizou {formatCurrency(mainSaved)} da meta mensal de{' '}
+              {formatCurrency(mainTarget)}
+            </p>
+            {mainPct > 100 && (
+              <p className="text-[11px] font-bold text-emerald-600">
+                Parabéns! Você superou sua meta de economia em {mainPct - 100}% 🎉
+              </p>
+            )}
+          </div>
+
+          {/* Micro-resumo estruturado de aportes e retiradas (Etapa 38) */}
+          <div className="w-full grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-slate-100 text-center">
+            <div className="p-2 rounded-xl bg-slate-50/70 border border-slate-100">
+              <span className="text-[10px] font-semibold text-slate-400 block uppercase tracking-wider">Aportes</span>
+              <span className="text-xs font-bold text-emerald-600 tnum">
+                {formatCurrency(stats.monthGoalDeposits ?? 0)}
+              </span>
+            </div>
+            <div className="p-2 rounded-xl bg-slate-50/70 border border-slate-100">
+              <span className="text-[10px] font-semibold text-slate-400 block uppercase tracking-wider">Retiradas</span>
+              <span className="text-xs font-bold text-slate-600 tnum">
+                {formatCurrency(stats.monthGoalWithdrawals ?? 0)}
+              </span>
+            </div>
+            <div className="p-2 rounded-xl bg-slate-50/70 border border-slate-100">
+              <span className="text-[10px] font-semibold text-slate-400 block uppercase tracking-wider">Líquido</span>
+              <span className={`text-xs font-bold tnum ${mainSaved < 0 ? 'text-amber-600' : 'text-slate-800'}`}>
+                {formatCurrency(mainSaved)}
+              </span>
+            </div>
+          </div>
+
+          {mainSaved < 0 && (
+            <div className="w-full mt-3 p-2.5 rounded-xl bg-amber-50/80 border border-amber-200/60 text-center">
+              <p className="text-[11px] font-medium text-amber-800">
+                Atenção: Os resgates no mês superaram os novos aportes em {formatCurrency(Math.abs(mainSaved))}.
+              </p>
+            </div>
+          )}
         </div>
       )}
+
+      {/* Patrimônio Total Reservado em Metas (Etapa 38) */}
+      <div className="bg-slate-50/80 rounded-2xl p-3.5 border border-slate-200/60 flex items-center justify-between">
+        <div>
+          <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block">
+            Patrimônio Total Reservado em Metas
+          </span>
+          <span className="text-sm font-extrabold text-slate-800 tnum">
+            {formatCurrency(stats.totalSavedInGoals ?? 0)}
+          </span>
+        </div>
+        <span className="text-xs font-bold text-emerald-700 bg-emerald-100/70 px-2.5 py-1 rounded-full">
+          {activeGoalsCount} {activeGoalsCount === 1 ? 'meta ativa' : 'metas ativas'}
+        </span>
+      </div>
 
       {/* Section 2: Minhas Metas Ativas (Auditoria Núcleo Financeiro) */}
       <div className="space-y-3 pt-1">

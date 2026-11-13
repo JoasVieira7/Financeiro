@@ -173,6 +173,10 @@ export interface DashboardStats {
   expenseComparisonPercentage: number;
   totalSavedInGoals: number;
   monthlySavingTarget: number;
+  monthlyCashSurplus?: number; // Superávit operacional de caixa do mês (Receitas − Despesas pagas)
+  netGoalContributionsMonth?: number; // Saldo líquido dos aportes (Aportes − Retiradas no mês, pode ser negativo)
+  monthGoalDeposits?: number; // Total de aportes realizados no mês corrente
+  monthGoalWithdrawals?: number; // Total de retiradas/resgates realizados no mês corrente
   hasNoGoal?: boolean;
   isBudgetNegative: boolean;
   deficitAmount: number;

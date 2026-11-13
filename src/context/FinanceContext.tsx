@@ -34,6 +34,8 @@ import {
   getTransactionStatus,
   formatMonthYear,
   formatCurrency,
+  parseSafeDate,
+  isInternalGoalTransfer,
 } from '../lib/formatters';
 import { generateInvoiceAlerts } from '../lib/invoiceNotificationEngine';
 import {
@@ -1787,7 +1789,12 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     setGoalContributions(prev => [contribution, ...prev]);
 
-    // Also register an explicit transaction for user visibility
+    // Also register an explicit transaction for user visibility with structured movement tags
+    const structuredTag = type === 'deposit'
+      ? `[movement:goal_deposit][goal_id:${goalId}]`
+      : `[movement:goal_withdraw][goal_id:${goalId}]`;
+    const fullNotes = notes?.trim() ? `${structuredTag} ${notes.trim()}` : structuredTag;
+
     if (type === 'deposit') {
       await addTransaction(
         numAmount,
@@ -1796,7 +1803,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         `Aporte na Meta: ${targetGoal.title}`,
         'expense',
         false,
-        notes
+        fullNotes
       );
     } else {
       await addTransaction(
@@ -1806,7 +1813,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         `Resgate da Meta: ${targetGoal.title}`,
         'income',
         false,
-        notes
+        fullNotes
       );
     }
 
@@ -2066,17 +2073,17 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const prevMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
 
     const thisMonthTx = transactions.filter(t => {
-      const d = (t.installment_group_id || t.due_date) ? getTransactionDueDate(t) : new Date(t.created_at);
+      const d = (t.installment_group_id || t.due_date) ? getTransactionDueDate(t) : parseSafeDate(t.created_at);
       return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
     });
 
     const prevMonthTx = transactions.filter(t => {
-      const d = (t.installment_group_id || t.due_date) ? getTransactionDueDate(t) : new Date(t.created_at);
+      const d = (t.installment_group_id || t.due_date) ? getTransactionDueDate(t) : parseSafeDate(t.created_at);
       return d.getMonth() === prevMonth && d.getFullYear() === prevMonthYear;
     });
 
-    // Despesas do mês corrente: pagas vs pendentes
-    const thisMonthExpenses = thisMonthTx.filter(t => t.type === 'expense');
+    // Despesas do mês corrente: pagas vs pendentes (excluindo transferências internas de aporte/resgate)
+    const thisMonthExpenses = thisMonthTx.filter(t => t.type === 'expense' && !isInternalGoalTransfer(t));
     const monthlyPaidExpense = thisMonthExpenses
       .filter(t => isTransactionPaid(t))
       .reduce((acc, t) => acc + Number(t.amount), 0);
@@ -2090,11 +2097,11 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const monthlyExpense = monthlyPaidExpense;
 
     const monthlyIncome = thisMonthTx
-      .filter(t => t.type === 'income')
+      .filter(t => t.type === 'income' && !isInternalGoalTransfer(t))
       .reduce((acc, t) => acc + Number(t.amount), 0);
 
     const previousMonthExpense = prevMonthTx
-      .filter(t => t.type === 'expense')
+      .filter(t => t.type === 'expense' && !isInternalGoalTransfer(t))
       .reduce((acc, t) => acc + Number(t.amount), 0);
 
     const expenseComparisonPercentage =
@@ -2111,7 +2118,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return t.created_at.startsWith(todayStr);
     });
     const todayExpense = todayTx
-      .filter(t => t.type === 'expense')
+      .filter(t => t.type === 'expense' && !isInternalGoalTransfer(t))
       .reduce((acc, t) => acc + Number(t.amount), 0);
     const todayTransactionsCount = todayTx.length;
 
@@ -2122,49 +2129,66 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     startOfWeek.setHours(0, 0, 0, 0);
 
     const thisWeekTx = transactions.filter(t => {
-      const d = (t.installment_group_id || t.due_date) ? getTransactionDueDate(t) : new Date(t.created_at);
+      const d = (t.installment_group_id || t.due_date) ? getTransactionDueDate(t) : parseSafeDate(t.created_at);
       return d >= startOfWeek;
     });
     const thisWeekExpense = thisWeekTx
-      .filter(t => t.type === 'expense')
+      .filter(t => t.type === 'expense' && !isInternalGoalTransfer(t))
       .reduce((acc, t) => acc + Number(t.amount), 0);
     const thisWeekIncome = thisWeekTx
-      .filter(t => t.type === 'income')
+      .filter(t => t.type === 'income' && !isInternalGoalTransfer(t))
       .reduce((acc, t) => acc + Number(t.amount), 0);
 
-    const netWeeklySavings = hasNoGoal
-      ? 0
-      : Math.max(
-          0,
-          thisWeekIncome > 0
-            ? thisWeekIncome - thisWeekExpense
-            : weeklyTarget - thisWeekExpense * 0.25
-        );
-    const weeklySavedAmount = hasNoGoal ? 0 : Math.min(weeklyTarget * 1.5, Math.max(0, netWeeklySavings));
-    const weeklyGoalPercentage = hasNoGoal
-      ? 0
-      : Math.min(
-          100,
-          Math.round((weeklySavedAmount / (weeklyTarget || 1)) * 100)
-        );
+    // -------------------------------------------------------------------------
+    // ETAPA 38 — AUDITORIA FINANCEIRA: APORTES, RETIRADAS E SALDO LÍQUIDO
+    // 1. Total de Aportes do Mês (monthGoalDeposits)
+    // 2. Total de Retiradas do Mês (monthGoalWithdrawals)
+    // 3. Saldo Líquido dos Aportes (netGoalContributionsMonth, permitindo negativo)
+    // 4. Patrimônio Atualmente Reservado (totalSavedInGoals)
+    // 5. Meta Mensal Planejada (monthlySavingTarget)
+    // 6. Superávit Operacional de Caixa (cashSurplusThisMonth)
+    // -------------------------------------------------------------------------
 
-    // Monthly savings metric
+    // 1. Aportes e retiradas em metas de economia no mês corrente (usando parseSafeDate contra timezone drift)
+    const currentMonthGoalContributions = goalContributions.filter(c => {
+      if (!c.created_at) return false;
+      const d = parseSafeDate(c.created_at);
+      return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+    });
+
+    const monthGoalDeposits = currentMonthGoalContributions
+      .filter(c => c.type === 'deposit')
+      .reduce((acc, c) => acc + (Number(c.amount) || 0), 0);
+
+    const monthGoalWithdrawals = currentMonthGoalContributions
+      .filter(c => c.type === 'withdraw')
+      .reduce((acc, c) => acc + (Number(c.amount) || 0), 0);
+
+    // Saldo líquido dos aportes (SEM trava artificial Math.max(0, ...); suporta retiradas líquidas negativas)
+    const netGoalContributionsMonth = roundToCents(monthGoalDeposits - monthGoalWithdrawals);
+
+    // 2. Superávit operacional real de caixa (Receitas reais recebidas − Despesas pagas)
+    const cashSurplusThisMonth = Math.max(0, monthlyIncome - monthlyPaidExpense);
+
+    // 3. Economia comprovada em metas no mês:
+    // Se o usuário não tem meta ativa configurada (hasNoGoal), o valor é 0.
+    // Caso tenha meta, reflete exatamente o saldo líquido de aportes no mês (netGoalContributionsMonth).
+    const realMonthlySaved = hasNoGoal ? 0 : netGoalContributionsMonth;
+
     const monthlyTarget = hasNoGoal ? 0 : weeklyToMonthly(weeklyTarget);
-    const netMonthlySavings = hasNoGoal
+    const monthlySavedAmount = hasNoGoal ? 0 : roundToCents(realMonthlySaved);
+
+    // Percentual real: (Economizado em Metas / Meta) * 100
+    const monthlyGoalPercentage = (hasNoGoal || monthlyTarget <= 0)
       ? 0
-      : Math.max(
-          0,
-          monthlyIncome > 0
-            ? monthlyIncome - monthlyExpense
-            : monthlyTarget - monthlyExpense * 0.25
-        );
-    const monthlySavedAmount = hasNoGoal ? 0 : Math.min(monthlyTarget * 1.5, Math.max(0, netMonthlySavings));
-    const monthlyGoalPercentage = hasNoGoal
+      : Math.round((monthlySavedAmount / monthlyTarget) * 100);
+
+    // Métricas semanais baseadas exclusivamente em registros reais da semana
+    const cashSurplusThisWeek = Math.max(0, thisWeekIncome - thisWeekExpense);
+    const weeklySavedAmount = hasNoGoal ? 0 : roundToCents(cashSurplusThisWeek);
+    const weeklyGoalPercentage = (hasNoGoal || weeklyTarget <= 0)
       ? 0
-      : Math.min(
-          100,
-          Math.round((monthlySavedAmount / (monthlyTarget || 1)) * 100)
-        );
+      : Math.round((weeklySavedAmount / weeklyTarget) * 100);
 
     // ETAPA 34 & 34.3: Fórmula Oficial do Orçamento e Meta Mensal:
     // Se tem meta: Renda − meta − compromissos do mês
@@ -2304,12 +2328,16 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       expenseComparisonPercentage,
       totalSavedInGoals,
       monthlySavingTarget: monthlyTarget,
+      monthlyCashSurplus: roundToCents(cashSurplusThisMonth),
+      monthGoalDeposits: roundToCents(monthGoalDeposits),
+      monthGoalWithdrawals: roundToCents(monthGoalWithdrawals),
+      netGoalContributionsMonth: roundToCents(netGoalContributionsMonth),
       hasNoGoal: hasNoGoal,
       isBudgetNegative,
       deficitAmount,
       categoryBreakdown,
     };
-  }, [transactions, profile, goals, customCatLimits]);
+  }, [transactions, profile, goals, goalContributions, customCatLimits]);
 
   // Inteligência Financeira: Compromissos Futuros (próximos 12 meses)
   const futureCommitments: FutureCommitmentsSummary = useMemo(() => {
