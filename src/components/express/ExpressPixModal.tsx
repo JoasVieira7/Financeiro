@@ -19,10 +19,19 @@ import {
   Layers,
   Calendar,
   AlertTriangle,
+  Sparkles,
 } from 'lucide-react';
 import { TransactionCategory, PaymentMethod, TransactionType, Transaction } from '../../types';
 import { useFinance } from '../../context/FinanceContext';
+import { useAuth } from '../../context/AuthContext';
 import { formatCurrency, formatDateBR, getInstallmentDates } from '../../lib/formatters';
+import {
+  getCreditCardSettings,
+  saveCreditCardSettings,
+  calculateSuggestedInvoicePeriod,
+  generateInvoicePeriodOptions,
+  CreditCardSettings,
+} from '../../lib/creditCardUtils';
 import confetti from 'canvas-confetti';
 
 interface ExpressPixModalProps {
@@ -60,6 +69,7 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
   onClose,
   editingTransaction,
 }) => {
+  const { user } = useAuth();
   const { addTransaction, addInstallmentExpense, updateTransaction, deleteTransaction } = useFinance();
   const [amountStr, setAmountStr] = useState<string>('0,00');
   const [txType, setTxType] = useState<TransactionType>('expense');
@@ -77,10 +87,45 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Etapa 34.4: Configurações de Cartão de Crédito e Vencimento de Fatura
+  const [cardSettings, setCardSettings] = useState<CreditCardSettings>(() => getCreditCardSettings(user?.id));
+  const [purchaseDate, setPurchaseDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [invoiceDueDate, setInvoiceDueDate] = useState<string>('');
+  const [isConfigCardOpen, setIsConfigCardOpen] = useState<boolean>(false);
+
+  const invoiceOptions = useMemo(() => {
+    return generateInvoicePeriodOptions(new Date(), cardSettings.dueDay);
+  }, [cardSettings.dueDay]);
+
+  const handleUpdateCardSetting = (field: 'dueDay' | 'closingDay', val: number) => {
+    if (isNaN(val) || val < 1 || val > 31) return;
+    const updated = { ...cardSettings, [field]: val };
+    setCardSettings(updated);
+    saveCreditCardSettings(updated, user?.id);
+    const suggested = calculateSuggestedInvoicePeriod(purchaseDate, updated.dueDay, updated.closingDay);
+    setInvoiceDueDate(suggested.dueDate);
+    if (paymentType === 'installment') {
+      setFirstInstallmentDate(suggested.dueDate);
+    }
+  };
+
+  const handlePurchaseDateChange = (newDate: string) => {
+    setPurchaseDate(newDate);
+    const suggested = calculateSuggestedInvoicePeriod(newDate, cardSettings.dueDay, cardSettings.closingDay);
+    setInvoiceDueDate(suggested.dueDate);
+    if (paymentType === 'installment') {
+      setFirstInstallmentDate(suggested.dueDate);
+    }
+  };
+
   useEffect(() => {
     if (isOpen) {
       setErrorMessage(null);
       setShowDeleteConfirm(false);
+      setIsConfigCardOpen(false);
+      const userSettings = getCreditCardSettings(user?.id);
+      setCardSettings(userSettings);
+
       if (editingTransaction) {
         setAmountStr(editingTransaction.amount.toFixed(2).replace('.', ','));
         setSelectedCategory(editingTransaction.category);
@@ -92,10 +137,17 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
           rawDesc.toLowerCase() === editingTransaction.category.toLowerCase() ||
           rawDesc.toLowerCase().startsWith(`${editingTransaction.category.toLowerCase()} (`);
         setDescription(isGeneric ? '' : rawDesc);
+
+        const pDate = (editingTransaction.purchase_date || editingTransaction.created_at || '').split('T')[0] || new Date().toISOString().split('T')[0];
+        setPurchaseDate(pDate);
+
+        const dDate = editingTransaction.due_date || calculateSuggestedInvoicePeriod(pDate, userSettings.dueDay, userSettings.closingDay).dueDate;
+        setInvoiceDueDate(dDate);
+
         if (editingTransaction.installment_group_id) {
           setPaymentType('installment');
           setInstallments(editingTransaction.installment_total || 2);
-          setFirstInstallmentDate(editingTransaction.created_at.split('T')[0]);
+          setFirstInstallmentDate(dDate);
           setApplyToAllGroup(true);
         } else {
           setPaymentType('spot');
@@ -106,12 +158,16 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
         setTxType('expense');
         setPaymentType('spot');
         setInstallments(6);
-        setFirstInstallmentDate(new Date().toISOString().split('T')[0]);
+        const todayStr = new Date().toISOString().split('T')[0];
+        setPurchaseDate(todayStr);
+        const suggested = calculateSuggestedInvoicePeriod(todayStr, userSettings.dueDay, userSettings.closingDay);
+        setInvoiceDueDate(suggested.dueDate);
+        setFirstInstallmentDate(suggested.dueDate);
         setPaymentMethod('pix');
         setDescription('');
       }
     }
-  }, [isOpen, editingTransaction]);
+  }, [isOpen, editingTransaction, user?.id]);
 
   // Cálculos de parcelamento
   const totalVal = parseFloat(amountStr.replace(',', '.')) || 0;
@@ -168,15 +224,27 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
       const finalDescription = description.trim() || selectedCategory;
 
       if (editingTransaction) {
+        const updates: any = {
+          amount: val,
+          category: selectedCategory,
+          type: txType,
+          payment_method: paymentMethod,
+          description: finalDescription,
+        };
+
+        if (paymentMethod === 'cartao_credito' && invoiceDueDate) {
+          updates.due_date = invoiceDueDate;
+          updates.purchase_date = `${purchaseDate}T12:00:00Z`;
+          const todayStr = new Date().toISOString().split('T')[0];
+          if (invoiceDueDate >= todayStr && editingTransaction.status !== 'paid') {
+            updates.status = 'pending';
+            updates.paid_at = null;
+          }
+        }
+
         const res = await updateTransaction(
           editingTransaction.id,
-          {
-            amount: val,
-            category: selectedCategory,
-            type: txType,
-            payment_method: paymentMethod,
-            description: finalDescription,
-          },
+          updates,
           applyToAllGroup
         );
 
@@ -193,10 +261,14 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
           colors: ['#00D26A', '#34D399', '#10B981'],
         });
 
+        const startFinalDate = paymentMethod === 'cartao_credito' && invoiceDueDate
+          ? `${invoiceDueDate}T12:00:00`
+          : `${firstInstallmentDate}T12:00:00`;
+
         const res = await addInstallmentExpense({
           totalAmount: val,
           installments: numInstallments,
-          startDate: `${firstInstallmentDate}T12:00:00`,
+          startDate: startFinalDate,
           category: selectedCategory,
           paymentMethod,
           description: finalDescription,
@@ -220,7 +292,11 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
           selectedCategory,
           paymentMethod,
           finalDescription,
-          txType
+          txType,
+          false,
+          undefined,
+          paymentMethod === 'cartao_credito' ? invoiceDueDate : undefined,
+          paymentMethod === 'cartao_credito' ? `${purchaseDate}T12:00:00Z` : undefined
         );
 
         if (res.error) {
@@ -556,6 +632,110 @@ export const ExpressPixModal: React.FC<ExpressPixModalProps> = ({
             );
           })}
         </div>
+
+        {/* Configuração da Fatura do Cartão (À vista ou Parcelado) */}
+        {paymentMethod === 'cartao_credito' && txType === 'expense' && (
+          <div className="mt-3 p-3.5 rounded-2xl bg-emerald-50/40 border border-emerald-100 space-y-3 animate-fade-in">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
+                <CreditCard className="w-4 h-4 text-emerald-600" />
+                <span>Fatura do Cartão de Crédito</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsConfigCardOpen(!isConfigCardOpen)}
+                className="text-[11px] font-semibold text-emerald-700 hover:text-emerald-800 hover:underline cursor-pointer"
+              >
+                {isConfigCardOpen ? 'Concluir' : `Vencimento dia ${cardSettings.dueDay}`}
+              </button>
+            </div>
+
+            {/* Configuração do dia de fechamento e vencimento (expansível) */}
+            {isConfigCardOpen && (
+              <div className="p-3 rounded-xl bg-white border border-emerald-200/60 space-y-2.5 text-xs">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-600 block mb-1">
+                      Dia do Vencimento:
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={31}
+                      value={cardSettings.dueDay}
+                      onChange={e => handleUpdateCardSetting('dueDay', parseInt(e.target.value, 10))}
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-800 font-bold text-center"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-600 block mb-1">
+                      Dia do Fechamento:
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={31}
+                      value={cardSettings.closingDay}
+                      onChange={e => handleUpdateCardSetting('closingDay', parseInt(e.target.value, 10))}
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-800 font-bold text-center"
+                    />
+                  </div>
+                </div>
+                <p className="text-[10.5px] text-slate-400">
+                  Compras feitas a partir do dia de fechamento entram automaticamente na fatura do mês seguinte.
+                </p>
+              </div>
+            )}
+
+            {/* Linha 1: Data da Compra */}
+            <div className="flex items-center justify-between gap-2 pt-0.5">
+              <label className="text-xs font-semibold text-slate-700 flex items-center gap-1 shrink-0">
+                <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                Data da compra:
+              </label>
+              <input
+                type="date"
+                value={purchaseDate}
+                onChange={e => handlePurchaseDateChange(e.target.value)}
+                className="text-xs font-medium px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              />
+            </div>
+
+            {/* Linha 2: Mês de vencimento da fatura (Mês de pagamento) */}
+            <div>
+              <label className="text-xs font-semibold text-slate-700 flex items-center justify-between mb-1">
+                <span>Mês de pagamento da fatura:</span>
+                <span className="text-[10.5px] font-medium text-emerald-700">
+                  Vence dia {cardSettings.dueDay}
+                </span>
+              </label>
+              <select
+                value={invoiceDueDate}
+                onChange={e => {
+                  setInvoiceDueDate(e.target.value);
+                  if (paymentType === 'installment') {
+                    setFirstInstallmentDate(e.target.value);
+                  }
+                }}
+                className="w-full text-xs font-semibold px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 cursor-pointer"
+              >
+                {invoiceOptions.map(opt => (
+                  <option key={opt.dueDate} value={opt.dueDate}>
+                    {opt.label} — Venc. {formatDateBR(opt.dueDate)}
+                    {opt.dueDate === calculateSuggestedInvoicePeriod(purchaseDate, cardSettings.dueDay, cardSettings.closingDay).dueDate ? ' (Sugerido)' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="p-2 rounded-xl bg-white/80 border border-emerald-100 text-[11px] text-slate-600 flex items-start gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+              <span>
+                O valor entrará nos compromissos da fatura selecionada e <strong>não será descontado do seu saldo bancário hoje</strong>.
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* Campo Opcional: Estabelecimento / Detalhe */}
         <div className="mt-3">

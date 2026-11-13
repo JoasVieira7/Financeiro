@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { useFinance } from '../../context/FinanceContext';
 import { useAuth } from '../../context/AuthContext';
 import { formatCurrency } from '../../lib/formatters';
-import { weeklyToMonthly } from '../../lib/budgetCalculations';
+import { weeklyToMonthly, monthlyToWeekly } from '../../lib/budgetCalculations';
 import { DonutChart } from '../common/DonutChart';
 import { PlanComparisonModal } from '../profile/PaymentModal';
 import {
@@ -97,13 +97,17 @@ export const GoalsView: React.FC = () => {
     getGoalContributions,
     updateCategoryLimit,
   } = useFinance();
-  const { profile, setBudgetPeriodPreference } = useAuth();
+  const { profile, setBudgetPeriodPreference, updateMonthlyBudget } = useAuth();
 
   // Período ativo do card principal sincronizado com preferência do perfil
   const mainPeriodView = profile?.budget_period_preference || 'monthly';
 
   // Filter tabs
   const [goalFilter, setGoalFilter] = useState<GoalFilter>('all');
+
+  // Modal para ativar/desativar/editar meta mensal do perfil (Etapa 34.4)
+  const [isEditMonthlyTargetOpen, setIsEditMonthlyTargetOpen] = useState(false);
+  const [monthlyTargetInputStr, setMonthlyTargetInputStr] = useState('');
 
   // Create Goal Modal
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -150,14 +154,39 @@ export const GoalsView: React.FC = () => {
   ).length;
   const isAtGoalLimit = isFreePlan && activeGoalsCount >= maxGoals;
 
-  // Main period card values (exclusivamente mensal)
-  const weeklyTarget = profile?.weekly_saving_target || 250;
-  const monthlyTarget = weeklyToMonthly(weeklyTarget);
+  // Main period card values (exclusivamente mensal - Etapa 34.4)
+  const weeklyTarget = profile?.weekly_saving_target ?? 250;
+  const hasNoGoal = weeklyTarget <= 0 || stats.hasNoGoal;
+  const monthlyTarget = hasNoGoal ? 0 : weeklyToMonthly(weeklyTarget);
   const mainTarget = monthlyTarget;
   const mainSaved = stats.monthlySavedAmount ?? 0;
   const mainPct =
-    stats.monthlyGoalPercentage ??
-    (monthlyTarget > 0 ? Math.min(100, Math.round((mainSaved / monthlyTarget) * 100)) : 0);
+    hasNoGoal
+      ? 0
+      : (stats.monthlyGoalPercentage ??
+        (monthlyTarget > 0 ? Math.min(100, Math.round((mainSaved / monthlyTarget) * 100)) : 0));
+
+  const handleOpenEditMonthlyTarget = () => {
+    setMonthlyTargetInputStr(hasNoGoal ? '400' : monthlyTarget.toString());
+    setIsEditMonthlyTargetOpen(true);
+  };
+
+  const handleSaveMonthlyTarget = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const val = parseFloat(monthlyTargetInputStr.replace(',', '.'));
+    if (isNaN(val) || val <= 0) {
+      await handleDeactivateMonthlyTarget();
+      return;
+    }
+    const weekly = monthlyToWeekly(val);
+    await updateMonthlyBudget(profile?.monthly_budget || 3500, weekly, 'monthly');
+    setIsEditMonthlyTargetOpen(false);
+  };
+
+  const handleDeactivateMonthlyTarget = async () => {
+    await updateMonthlyBudget(profile?.monthly_budget || 3500, 0, 'monthly');
+    setIsEditMonthlyTargetOpen(false);
+  };
 
   // Filtered goals list
   const filteredGoals = goals.filter(goal => {
@@ -354,28 +383,57 @@ export const GoalsView: React.FC = () => {
         </div>
       </div>
 
-      {/* Card 1: Meta de Economia do Mês */}
-      <div className="bg-white rounded-3xl p-6 border border-emerald-200/80 shadow-card flex flex-col items-center">
-        <h3 className="text-sm font-bold text-slate-900 text-center mb-4">
-          Meta de Economia do Mês
-        </h3>
+      {/* Card 1: Meta de Economia do Mês (Etapa 34.4: Opcional) */}
+      {hasNoGoal ? (
+        <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-card flex flex-col items-center text-center">
+          <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mb-3">
+            <Target className="w-6 h-6 text-slate-400" />
+          </div>
+          <h3 className="text-sm font-bold text-slate-900 mb-1">
+            Meta de Economia Mensal Desativada
+          </h3>
+          <p className="text-xs text-slate-400 max-w-xs leading-relaxed mb-4">
+            Você está gerenciando suas finanças sem uma meta fixa de economia. Seu saldo livre está disponível sem deduções.
+          </p>
+          <button
+            type="button"
+            onClick={handleOpenEditMonthlyTarget}
+            className="px-4 py-2 rounded-full bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold border border-emerald-200 transition-colors cursor-pointer"
+          >
+            Ativar Meta de Economia
+          </button>
+        </div>
+      ) : (
+        <div className="bg-white rounded-3xl p-6 border border-emerald-200/80 shadow-card flex flex-col items-center relative">
+          <div className="flex items-center justify-between w-full mb-3">
+            <h3 className="text-sm font-bold text-slate-900">
+              Meta de Economia do Mês
+            </h3>
+            <button
+              onClick={handleOpenEditMonthlyTarget}
+              className="text-xs font-semibold text-emerald-700 hover:underline cursor-pointer"
+            >
+              Ajustar / Desativar
+            </button>
+          </div>
 
-        {/* Donut Chart com dados reais */}
-        <DonutChart
-          progressPercentage={mainPct}
-          centerLabel="Economizado"
-          centerValue={formatCurrency(mainSaved)}
-          size={170}
-          strokeWidth={34}
-          showCenterTotal={true}
-        />
+          {/* Donut Chart com dados reais */}
+          <DonutChart
+            progressPercentage={mainPct}
+            centerLabel="Economizado"
+            centerValue={formatCurrency(mainSaved)}
+            size={170}
+            strokeWidth={34}
+            showCenterTotal={true}
+          />
 
-        {/* Subtitle */}
-        <p className="text-xs font-semibold text-slate-500 text-center mt-5">
-          Você economizou {formatCurrency(mainSaved)} da meta mensal de{' '}
-          {formatCurrency(mainTarget)}
-        </p>
-      </div>
+          {/* Subtitle */}
+          <p className="text-xs font-semibold text-slate-500 text-center mt-5">
+            Você economizou {formatCurrency(mainSaved)} da meta mensal de{' '}
+            {formatCurrency(mainTarget)}
+          </p>
+        </div>
+      )}
 
       {/* Section 2: Minhas Metas Ativas (Auditoria Núcleo Financeiro) */}
       <div className="space-y-3 pt-1">
@@ -670,6 +728,74 @@ export const GoalsView: React.FC = () => {
         </div>
       </div>
 
+      {/* Modal 0.5: Ajustar ou Desativar Meta Mensal (Etapa 34.4) */}
+      {isEditMonthlyTargetOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-2xl animate-scale-in">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <Target className="w-4 h-4 text-emerald-600" />
+                Meta de Economia Mensal
+              </h3>
+              <button
+                onClick={() => setIsEditMonthlyTargetOpen(false)}
+                className="w-7 h-7 rounded-full bg-slate-100 text-slate-500 hover:text-slate-900 flex items-center justify-center cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveMonthlyTarget} className="space-y-4">
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">
+                  Valor da Meta Mensal (R$)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  placeholder="Ex: 500.00"
+                  value={monthlyTargetInputStr}
+                  onChange={e => setMonthlyTargetInputStr(e.target.value)}
+                  className="w-full text-base sm:text-sm tnum px-3.5 py-3 rounded-2xl border border-slate-200 text-slate-900 font-bold focus:outline-none focus:border-emerald-500"
+                />
+                <span className="text-[11px] text-slate-400 mt-1 block">
+                  Valor a ser guardado exclusivamente neste mês.
+                </span>
+              </div>
+
+              <div className="flex flex-col gap-2 pt-1">
+                <button
+                  type="submit"
+                  className="w-full py-3 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-button-green transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Salvar Meta Mensal</span>
+                </button>
+
+                {!hasNoGoal && (
+                  <button
+                    type="button"
+                    onClick={handleDeactivateMonthlyTarget}
+                    className="w-full py-2.5 rounded-full bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs transition-colors cursor-pointer"
+                  >
+                    Desativar Meta de Economia
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setIsEditMonthlyTargetOpen(false)}
+                  className="w-full py-2 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Modal 1: Adicionar Nova Meta */}
       {isAddOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in">
@@ -791,54 +917,30 @@ export const GoalsView: React.FC = () => {
                 {/* Prazo só aparece quando tipo é "custom" */}
                 {newPeriodType === 'custom' && (
                   <div>
-                    <label className="text-xs font-bold text-slate-700 block mb-1">
-                      Prazo Estimado (Opcional)
-                    </label>
-                    <div
-                      onClick={() => {
-                        try {
-                          addDeadlineRef.current?.showPicker?.();
-                        } catch {
-                          addDeadlineRef.current?.focus();
-                        }
-                      }}
-                      className="relative w-full rounded-2xl border border-slate-200 bg-white overflow-hidden transition-all focus-within:border-[#00D26A] cursor-pointer"
-                    >
-                      {/* Visual alinhado com ícone e texto formatado */}
-                      <div className="w-full flex items-center justify-between text-xs px-3.5 py-3 pointer-events-none pr-10">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
-                          <span className={deadline ? 'text-slate-900 font-semibold truncate' : 'text-slate-400 truncate'}>
-                            {deadline ? formatDeadlineDisplay(deadline) : 'Selecionar data de conclusão'}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Input nativo que captura o toque de forma contida e invisível */}
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-bold text-slate-700">
+                        Prazo Estimado (Opcional)
+                      </label>
+                      {deadline && (
+                        <button
+                          type="button"
+                          onClick={() => setDeadline('')}
+                          className="text-[11px] font-semibold text-rose-500 hover:text-rose-600 transition-colors cursor-pointer"
+                        >
+                          Limpar data
+                        </button>
+                      )}
+                    </div>
+                    <div className="relative flex items-center">
+                      <Calendar className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none shrink-0 z-10" />
                       <input
                         ref={addDeadlineRef}
                         type="date"
                         value={deadline}
                         onChange={e => setDeadline(e.target.value)}
-                        className="date-input-overlay absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10 bg-transparent"
+                        className="w-full text-xs pl-10 pr-3.5 py-3 rounded-2xl border border-slate-200 bg-white text-slate-900 focus:outline-none focus:border-[#00D26A] transition-all cursor-pointer min-h-[46px]"
                         aria-label="Prazo Estimado (Opcional)"
                       />
-
-                      {/* Botão limpar data, posicionado acima do input com z-20 */}
-                      {deadline && (
-                        <button
-                          type="button"
-                          onClick={e => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setDeadline('');
-                          }}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center cursor-pointer z-20 transition-colors"
-                          title="Remover prazo"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      )}
                     </div>
                   </div>
                 )}
@@ -952,54 +1054,30 @@ export const GoalsView: React.FC = () => {
               {/* Prazo só aparece quando tipo é "custom" */}
               {editPeriodType === 'custom' && (
                 <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">
-                    Prazo Estimado (Opcional)
-                  </label>
-                  <div
-                    onClick={() => {
-                      try {
-                        editDeadlineRef.current?.showPicker?.();
-                      } catch {
-                        editDeadlineRef.current?.focus();
-                      }
-                    }}
-                    className="relative w-full rounded-2xl border border-slate-200 bg-white overflow-hidden transition-all focus-within:border-[#00D26A] cursor-pointer"
-                  >
-                    {/* Visual alinhado com ícone e texto formatado */}
-                    <div className="w-full flex items-center justify-between text-xs px-3.5 py-3 pointer-events-none pr-10">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
-                        <span className={editDeadline ? 'text-slate-900 font-semibold truncate' : 'text-slate-400 truncate'}>
-                          {editDeadline ? formatDeadlineDisplay(editDeadline) : 'Selecionar data de conclusão'}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Input nativo que captura o toque de forma contida e invisível */}
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold text-slate-700">
+                      Prazo Estimado (Opcional)
+                    </label>
+                    {editDeadline && (
+                      <button
+                        type="button"
+                        onClick={() => setEditDeadline('')}
+                        className="text-[11px] font-semibold text-rose-500 hover:text-rose-600 transition-colors cursor-pointer"
+                      >
+                        Limpar data
+                      </button>
+                    )}
+                  </div>
+                  <div className="relative flex items-center">
+                    <Calendar className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none shrink-0 z-10" />
                     <input
                       ref={editDeadlineRef}
                       type="date"
                       value={editDeadline}
                       onChange={e => setEditDeadline(e.target.value)}
-                      className="date-input-overlay absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10 bg-transparent"
+                      className="w-full text-xs pl-10 pr-3.5 py-3 rounded-2xl border border-slate-200 bg-white text-slate-900 focus:outline-none focus:border-[#00D26A] transition-all cursor-pointer min-h-[46px]"
                       aria-label="Prazo Estimado (Opcional)"
                     />
-
-                    {/* Botão limpar data, posicionado acima do input com z-20 */}
-                    {editDeadline && (
-                      <button
-                        type="button"
-                        onClick={e => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          setEditDeadline('');
-                        }}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center cursor-pointer z-20 transition-colors"
-                        title="Remover prazo"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    )}
                   </div>
                 </div>
               )}

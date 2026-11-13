@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  
+  <defs>
+    <linearGradient id="fluxoEmeraldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00D26A" />
+      <stop offset="100%" stop-color="#059669" />
+    </linearGradient>
+    <linearGradient id="fluxoSparkleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34D399" />
+      <stop offset="100%" stop-color="#00D26A" />
+    </linearGradient>
+    <linearGradient id="fluxoBgSatin" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="70%" stop-color="#FFFFFF" />
+      <stop offset="100%" stop-color="#F0FDF4" />
+    </linearGradient>
+    <filter id="fluxoShadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="16" stdDeviation="24" flood-color="#00D26A" flood-opacity="0.14" />
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#0F172A" flood-opacity="0.04" />
+    </filter>
+  </defs>
+
+  <!-- Squircle de contraste limpo -->
+  <rect width="32" height="32" rx="9" fill="#FFFFFF" />
+  <rect width="32" height="32" rx="9" fill="none" stroke="#D1FAE5" stroke-width="1" />
+  
+  <!-- Símbolo (escala 0.55, centro 16) -->
+  
+  <g transform="translate(3.8999999999999986, 3.8999999999999986) scale(0.55)">
+    <!-- Sparkle Star 1 -->
+    <path
+      d="M21 9C21 11.2 19.8 12.8 17.5 13.5C19.8 14.2 21 15.8 21 18C21 15.8 22.2 14.2 24.5 13.5C22.2 12.8 21 11.2 21 9Z"
+      fill="url(#fluxoSparkleGrad)"
+    />
+    <!-- Sparkle Star 2 -->
+    <path
+      d="M30 7.5C30 8.8 29.3 9.8 28 10.2C29.3 10.6 30 11.6 30 13C30 11.6 30.7 10.6 32 10.2C30.7 9.8 30 8.8 30 7.5Z"
+      fill="url(#fluxoSparkleGrad)"
+    />
+    <!-- Linha Dinâmica de Crescimento -->
+    <path
+      d="M11 29L18.5 21.5L24 27L33.5 15.5"
+      stroke="url(#fluxoEmeraldGrad)"
+      stroke-width="3.6"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <!-- Seta Ascendente -->
+    <path
+      d="M27.5 15.5H33.5V21.5"
+      stroke="url(#fluxoEmeraldGrad)"
+      stroke-width="3.6"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  </g>
+  
+</svg>

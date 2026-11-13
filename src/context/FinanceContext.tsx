@@ -7,6 +7,7 @@ import {
   TransactionCategory,
   PaymentMethod,
   TransactionType,
+  TransactionStatus,
   DashboardStats,
   CategorySummary,
   PLAN_LIMITS,
@@ -43,6 +44,7 @@ import {
   getEffectiveSavingTarget,
 } from '../lib/budgetCalculations';
 import { ParsedInstallmentPurchase, inferCategory } from '../lib/installmentExcelParser';
+import { calculateSuggestedInvoicePeriod } from '../lib/creditCardUtils';
 import { EditablePdfItem, InvoiceMetadata } from '../lib/pdfAdapters';
 import { generatePdfImportIdempotencyPlan, generateDeterministicUuid, Sha256UnavailableError } from '../lib/idempotency';
 
@@ -110,7 +112,9 @@ interface FinanceContextType {
     description?: string,
     type?: TransactionType,
     isRecurring?: boolean,
-    notes?: string
+    notes?: string,
+    dueDate?: string,
+    purchaseDate?: string
   ) => Promise<{ success: boolean; error?: string }>;
   addInstallmentExpense: (
     params: AddInstallmentExpenseParams
@@ -447,7 +451,9 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     description?: string,
     type: TransactionType = 'expense',
     isRecurring: boolean = false,
-    notes?: string
+    notes?: string,
+    dueDate?: string,
+    purchaseDate?: string
   ): Promise<{ success: boolean; error?: string }> => {
     if (!user) return { success: false, error: 'Usuário não autenticado' };
 
@@ -467,6 +473,22 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const isoNow = new Date().toISOString();
     const todayDateStr = isoNow.split('T')[0];
 
+    const isCreditCard = paymentMethod === 'cartao_credito';
+    const finalPurchaseDate = purchaseDate || isoNow;
+    const finalDueDate = dueDate || (isCreditCard ? calculateSuggestedInvoicePeriod(finalPurchaseDate).dueDate : todayDateStr);
+
+    // Etapa 34.4: Cartão de crédito não desconta do saldo à vista.
+    // Se o vencimento for futuro ou hoje, status é 'pending' e paid_at é null.
+    // Para outros métodos (Pix, dinheiro, débito): status 'paid' imediatamente.
+    let status: TransactionStatus = 'paid';
+    let paidAt: string | null = isoNow;
+
+    if (isCreditCard && type === 'expense') {
+      const isPastDue = finalDueDate < todayDateStr;
+      status = isPastDue ? 'paid' : 'pending';
+      paidAt = isPastDue ? `${finalDueDate}T12:00:00Z` : null;
+    }
+
     const newTx: Transaction = {
       id: `tx-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
       user_id: user.id,
@@ -477,11 +499,11 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       type,
       is_recurring: isRecurring,
       notes: notes?.trim() || undefined,
-      created_at: isoNow,
-      purchase_date: isoNow,
-      due_date: todayDateStr,
-      paid_at: isoNow,
-      status: 'paid',
+      created_at: finalPurchaseDate,
+      purchase_date: finalPurchaseDate,
+      due_date: finalDueDate,
+      paid_at: paidAt,
+      status,
     };
 
     setTransactions(prev => [newTx, ...prev]);
@@ -570,9 +592,12 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const dueDate = dates[i];
       const dueDateStr = dueDate.toISOString().split('T')[0];
       
-      // Primeira parcela: se a data inicial for hoje ou passada, considera paga
-      // Parcelas seguintes: sempre nascem como pendentes
-      const isFirstPaid = i === 0 && dueDate <= today;
+      // Etapa 34.4: Para cartão de crédito, parcelas com vencimento futuro (ou hoje)
+      // nascem sempre como pendentes para não debitar indevidamente do saldo bancário à vista.
+      const isPast = dueDate < today;
+      const isFirstPaid = paymentMethod === 'cartao_credito'
+        ? (i === 0 && isPast)
+        : (i === 0 && dueDate <= today);
       const status: 'paid' | 'pending' = isFirstPaid ? 'paid' : 'pending';
       const paidAt = isFirstPaid ? dueDate.toISOString() : null;
 
@@ -2279,6 +2304,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       expenseComparisonPercentage,
       totalSavedInGoals,
       monthlySavingTarget: monthlyTarget,
+      hasNoGoal: hasNoGoal,
       isBudgetNegative,
       deficitAmount,
       categoryBreakdown,
@@ -2313,9 +2339,10 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const monthKey = `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}`;
       const monthLabel = formatMonthYear(forecastDate);
 
-      // Todas as transações de despesa parcelada cujo vencimento cai neste mês
+      // Todas as transações cujo vencimento cai neste mês (compras parceladas ou cartão de crédito)
       const monthInstallments = transactions.filter(t => {
-        if (!t.installment_group_id || t.type !== 'expense') return false;
+        if (t.type !== 'expense') return false;
+        if (!t.installment_group_id && t.payment_method !== 'cartao_credito') return false;
         const dueDate = getTransactionDueDate(t);
         return dueDate.getFullYear() === targetYear && dueDate.getMonth() === targetMonth;
       });

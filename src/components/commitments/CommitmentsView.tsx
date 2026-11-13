@@ -285,7 +285,11 @@ export const CommitmentsView: React.FC<CommitmentsViewProps> = ({
                           : 'bg-slate-100 text-slate-700 border-slate-200/70'
                       }`}
                     >
-                      {tx.installment_number}/{tx.installment_total}
+                      {tx.installment_number && tx.installment_total ? (
+                        `${tx.installment_number}/${tx.installment_total}`
+                      ) : (
+                        <CreditCard className="w-4 h-4" />
+                      )}
                     </div>
 
                     <div className="min-w-0">

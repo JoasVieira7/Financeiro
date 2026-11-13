@@ -25,8 +25,8 @@ self.addEventListener('push', event => {
   const title = data.title || 'Lembrete de Vencimento 💳';
   const options = {
     body: data.body || 'Você possui um compromisso financeiro próximo do vencimento.',
-    icon: data.icon || '/icon.svg',
-    badge: data.badge || '/icon.svg',
+    icon: data.icon || '/pwa-192x192.png',
+    badge: data.badge || '/favicon-32x32.png',
     vibrate: [100, 50, 100],
     data: {
       url: data.url || '/',

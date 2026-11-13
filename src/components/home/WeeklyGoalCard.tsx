@@ -3,6 +3,7 @@ import { useFinance } from '../../context/FinanceContext';
 import { useAuth } from '../../context/AuthContext';
 import { formatCurrency } from '../../lib/formatters';
 import { weeklyToMonthly } from '../../lib/budgetCalculations';
+import { Target, Sparkles, ChevronRight } from 'lucide-react';
 
 interface MonthlyGoalCardProps {
   onGoToGoals: () => void;
@@ -13,14 +14,52 @@ export const MonthlyGoalCard: React.FC<MonthlyGoalCardProps> = ({ onGoToGoals })
   const { profile } = useAuth();
 
   const weeklyTarget = profile?.weekly_saving_target ?? 250;
-  const monthlyTarget = weeklyToMonthly(weeklyTarget);
+  const hasNoGoal = weeklyTarget <= 0 || stats.hasNoGoal;
+  const monthlyTarget = hasNoGoal ? 0 : weeklyToMonthly(weeklyTarget);
 
   const currentSaved = stats.monthlySavedAmount ?? 0;
   const target = monthlyTarget;
 
   const percentage =
-    stats.monthlyGoalPercentage ??
-    (monthlyTarget > 0 ? Math.min(100, Math.round((currentSaved / monthlyTarget) * 100)) : 0);
+    hasNoGoal
+      ? 0
+      : (stats.monthlyGoalPercentage ??
+        (monthlyTarget > 0 ? Math.min(100, Math.round((currentSaved / monthlyTarget) * 100)) : 0));
+
+  // Quando a meta está desativada / não definida (Etapa 34.4)
+  if (hasNoGoal) {
+    return (
+      <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-slate-200/60 shadow-card hover:shadow-card-hover transition-all flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 rounded-2xl bg-slate-100 text-slate-500 flex items-center justify-center shrink-0">
+            <Target className="w-5 h-5 text-slate-400" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-xs sm:text-sm font-semibold text-slate-800">
+                Meta de economia mensal
+              </span>
+              <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                Não definida
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400 mt-0.5 truncate">
+              Você está usando o app sem meta fixa. Saldo livre sem retenção.
+            </p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={onGoToGoals}
+          className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/60 transition-colors shrink-0 cursor-pointer"
+        >
+          <span>Definir meta</span>
+          <ChevronRight className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-slate-200/60 shadow-card hover:shadow-card-hover transition-all">
