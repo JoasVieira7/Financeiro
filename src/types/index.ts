@@ -173,6 +173,7 @@ export interface DashboardStats {
   expenseComparisonPercentage: number;
   totalSavedInGoals: number;
   monthlySavingTarget: number;
+  hasNoGoal?: boolean;
   isBudgetNegative: boolean;
   deficitAmount: number;
   categoryBreakdown: CategorySummary[];

@@ -133,6 +133,11 @@ interface FinanceContextType {
     updateAllInstallments?: boolean
   ) => Promise<{ success: boolean; error?: string }>;
   deleteTransaction: (id: string, deleteAllInstallments?: boolean) => Promise<void>;
+  deleteTransactionsBatch: (
+    ids: string[],
+    deleteAllInstallments?: boolean
+  ) => Promise<{ success: boolean; count: number; error?: string }>;
+  deleteAllTransactions: () => Promise<{ success: boolean; count: number; error?: string }>;
   toggleInstallmentPaid: (transactionId: string) => Promise<{ success: boolean; error?: string }>;
   getInstallmentGroup: (groupId: string) => InstallmentGroupSummary | undefined;
   addSavingsGoal: (
@@ -1307,6 +1312,95 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
+  const deleteTransactionsBatch = async (
+    ids: string[],
+    deleteAllInstallments: boolean = false
+  ): Promise<{ success: boolean; count: number; error?: string }> => {
+    if (!ids || ids.length === 0) return { success: true, count: 0 };
+
+    const idSet = new Set(ids);
+    const affectedGroupIds = new Set<string>();
+
+    if (deleteAllInstallments) {
+      for (const t of transactions) {
+        if (idSet.has(t.id) && t.installment_group_id) {
+          affectedGroupIds.add(t.installment_group_id);
+        }
+      }
+    }
+
+    setTransactions(prev =>
+      prev.filter(t => {
+        if (idSet.has(t.id)) return false;
+        if (deleteAllInstallments && t.installment_group_id && affectedGroupIds.has(t.installment_group_id)) {
+          return false;
+        }
+        return true;
+      })
+    );
+
+    if (isSupabaseConfigured && !isDemo && user) {
+      try {
+        if (affectedGroupIds.size > 0) {
+          await supabase
+            .from('transactions')
+            .delete()
+            .eq('user_id', user.id)
+            .in('installment_group_id', Array.from(affectedGroupIds));
+        }
+        const remainingIds = ids.filter(id => {
+          const tx = transactions.find(t => t.id === id);
+          return !tx?.installment_group_id || !affectedGroupIds.has(tx.installment_group_id);
+        });
+        if (remainingIds.length > 0) {
+          await supabase
+            .from('transactions')
+            .delete()
+            .eq('user_id', user.id)
+            .in('id', remainingIds);
+        }
+      } catch (err: any) {
+        return { success: false, count: 0, error: err.message };
+      }
+    } else {
+      const storedTx = localStorage.getItem(LOCAL_STORAGE_TX_KEY);
+      if (storedTx) {
+        const allTx: Transaction[] = JSON.parse(storedTx);
+        const filtered = allTx.filter(t => {
+          if (idSet.has(t.id)) return false;
+          if (deleteAllInstallments && t.installment_group_id && affectedGroupIds.has(t.installment_group_id)) {
+            return false;
+          }
+          return true;
+        });
+        localStorage.setItem(LOCAL_STORAGE_TX_KEY, JSON.stringify(filtered));
+      }
+    }
+
+    return { success: true, count: ids.length };
+  };
+
+  const deleteAllTransactions = async (): Promise<{ success: boolean; count: number; error?: string }> => {
+    const totalCount = transactions.length;
+    setTransactions([]);
+
+    if (isSupabaseConfigured && !isDemo && user) {
+      try {
+        const { error } = await supabase
+          .from('transactions')
+          .delete()
+          .eq('user_id', user.id);
+        if (error) return { success: false, count: 0, error: error.message };
+      } catch (err: any) {
+        return { success: false, count: 0, error: err.message };
+      }
+    } else {
+      localStorage.removeItem(LOCAL_STORAGE_TX_KEY);
+    }
+
+    return { success: true, count: totalCount };
+  };
+
   const toggleInstallmentPaid = async (transactionId: string): Promise<{ success: boolean; error?: string }> => {
     const target = transactions.find(t => t.id === transactionId);
     if (!target) return { success: false, error: 'Lançamento não encontrado.' };
@@ -1933,7 +2027,10 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Computations for dashboard stats, daily limit & category breakdown
   const stats: DashboardStats = useMemo(() => {
     const monthlyBudget = profile?.monthly_budget || 3500;
-    const weeklyTarget = profile?.weekly_saving_target || 250;
+    const hasExplicitWeeklyTarget =
+      profile?.weekly_saving_target !== undefined && profile?.weekly_saving_target !== null;
+    const weeklyTarget = hasExplicitWeeklyTarget ? Number(profile.weekly_saving_target) : 250;
+    const hasNoGoal = weeklyTarget <= 0;
 
     const now = new Date();
     const currentMonth = now.getMonth();
@@ -2010,52 +2107,69 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       .filter(t => t.type === 'income')
       .reduce((acc, t) => acc + Number(t.amount), 0);
 
-    const netWeeklySavings = Math.max(
-      0,
-      thisWeekIncome > 0
-        ? thisWeekIncome - thisWeekExpense
-        : weeklyTarget - thisWeekExpense * 0.25
-    );
-    const weeklySavedAmount = Math.min(weeklyTarget * 1.5, Math.max(0, netWeeklySavings));
-    const weeklyGoalPercentage = Math.min(
-      100,
-      Math.round((weeklySavedAmount / (weeklyTarget || 1)) * 100)
-    );
+    const netWeeklySavings = hasNoGoal
+      ? 0
+      : Math.max(
+          0,
+          thisWeekIncome > 0
+            ? thisWeekIncome - thisWeekExpense
+            : weeklyTarget - thisWeekExpense * 0.25
+        );
+    const weeklySavedAmount = hasNoGoal ? 0 : Math.min(weeklyTarget * 1.5, Math.max(0, netWeeklySavings));
+    const weeklyGoalPercentage = hasNoGoal
+      ? 0
+      : Math.min(
+          100,
+          Math.round((weeklySavedAmount / (weeklyTarget || 1)) * 100)
+        );
 
     // Monthly savings metric
-    const monthlyTarget = weeklyToMonthly(weeklyTarget || 250);
-    const netMonthlySavings = Math.max(
-      0,
-      monthlyIncome > 0
-        ? monthlyIncome - monthlyExpense
-        : monthlyTarget - monthlyExpense * 0.25
-    );
-    const monthlySavedAmount = Math.min(monthlyTarget * 1.5, Math.max(0, netMonthlySavings));
-    const monthlyGoalPercentage = Math.min(
-      100,
-      Math.round((monthlySavedAmount / (monthlyTarget || 1)) * 100)
-    );
+    const monthlyTarget = hasNoGoal ? 0 : weeklyToMonthly(weeklyTarget);
+    const netMonthlySavings = hasNoGoal
+      ? 0
+      : Math.max(
+          0,
+          monthlyIncome > 0
+            ? monthlyIncome - monthlyExpense
+            : monthlyTarget - monthlyExpense * 0.25
+        );
+    const monthlySavedAmount = hasNoGoal ? 0 : Math.min(monthlyTarget * 1.5, Math.max(0, netMonthlySavings));
+    const monthlyGoalPercentage = hasNoGoal
+      ? 0
+      : Math.min(
+          100,
+          Math.round((monthlySavedAmount / (monthlyTarget || 1)) * 100)
+        );
 
-    // ETAPA 34: Fórmula Oficial do Orçamento e Meta Mensal:
-    // Orçamento mensal disponível = Renda mensal − meta de economia mensal − despesas e compromissos considerados no mês
-    const rawRemainingBudget = roundToCents(monthlyBudget - monthlyTarget - totalCommittedMonth);
+    // ETAPA 34 & 34.3: Fórmula Oficial do Orçamento e Meta Mensal:
+    // Se tem meta: Renda − meta − compromissos do mês
+    // Se NÃO tem meta: Renda − compromissos do mês
+    const rawRemainingBudget = roundToCents(
+      hasNoGoal
+        ? monthlyBudget - totalCommittedMonth
+        : monthlyBudget - monthlyTarget - totalCommittedMonth
+    );
     const remainingBudget = rawRemainingBudget;
     const isBudgetNegative = remainingBudget < 0;
     const deficitAmount = isBudgetNegative ? Math.abs(remainingBudget) : 0;
 
-    // Percentual consumido: (despesas + meta de economia) / renda mensal
+    // Percentual consumido: (despesas + meta) / renda mensal
     const budgetUsedPercentage = monthlyBudget > 0
-      ? Math.round(((totalCommittedMonth + monthlyTarget) / monthlyBudget) * 100)
+      ? Math.round(((totalCommittedMonth + (hasNoGoal ? 0 : monthlyTarget)) / monthlyBudget) * 100)
       : 100;
 
     // Métricas para o período semanal do orçamento
     const budgetPeriod: 'weekly' | 'monthly' = profile?.budget_period_preference || 'monthly';
     const weeklyBudget = monthlyToWeekly(monthlyBudget);
     const weeklyExpense = thisWeekExpense;
-    const weeklyTargetAmount = weeklyTarget || 250;
-    const weeklyRemainingBudget = roundToCents(weeklyBudget - weeklyTargetAmount - weeklyExpense);
+    const weeklyTargetAmount = hasNoGoal ? 0 : weeklyTarget;
+    const weeklyRemainingBudget = roundToCents(
+      hasNoGoal
+        ? weeklyBudget - weeklyExpense
+        : weeklyBudget - weeklyTargetAmount - weeklyExpense
+    );
     const weeklyBudgetUsedPercentage = weeklyBudget > 0
-      ? Math.round(((weeklyExpense + weeklyTargetAmount) / weeklyBudget) * 100)
+      ? Math.round(((weeklyExpense + (hasNoGoal ? 0 : weeklyTargetAmount)) / weeklyBudget) * 100)
       : 100;
 
     // Projeções efetivas sincronizadas com o período principal selecionado
@@ -2280,6 +2394,8 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         importPdfInvoicePurchases,
         updateTransaction,
         deleteTransaction,
+        deleteTransactionsBatch,
+        deleteAllTransactions,
         toggleInstallmentPaid,
         getInstallmentGroup,
         addSavingsGoal,

@@ -44,11 +44,9 @@
     -webkit-appearance: none;
     -moz-appearance: none;
     appearance: none;
-    width: 100%;
     max-width: 100%;
     min-width: 0;
     box-sizing: border-box;
-    overflow: hidden;
   }
 
   input[type="date"]::-webkit-date-and-time-value {
@@ -62,6 +60,48 @@
   input[type="date"]::-webkit-datetime-edit {
     display: inline-flex;
     padding: 0;
+  }
+
+  /* Reset definitivo para date inputs invisíveis/overlay no iOS Safari e Android */
+  input[type="date"].date-input-overlay,
+  input[type="date"].opacity-0,
+  input[type="date"][class*="opacity-0"] {
+    opacity: 0 !important;
+    background: transparent !important;
+    background-color: transparent !important;
+    border: none !important;
+    color: transparent !important;
+    -webkit-appearance: none !important;
+    appearance: none !important;
+  }
+
+  input[type="date"].date-input-overlay::-webkit-date-and-time-value,
+  input[type="date"].opacity-0::-webkit-date-and-time-value,
+  input[type="date"][class*="opacity-0"]::-webkit-date-and-time-value {
+    display: none !important;
+    opacity: 0 !important;
+    color: transparent !important;
+    background: transparent !important;
+    min-height: 0 !important;
+    height: 0 !important;
+    line-height: 0 !important;
+  }
+
+  input[type="date"].date-input-overlay::-webkit-datetime-edit,
+  input[type="date"].opacity-0::-webkit-datetime-edit,
+  input[type="date"][class*="opacity-0"]::-webkit-datetime-edit,
+  input[type="date"].date-input-overlay::-webkit-inner-spin-button,
+  input[type="date"].opacity-0::-webkit-inner-spin-button,
+  input[type="date"][class*="opacity-0"]::-webkit-inner-spin-button,
+  input[type="date"].date-input-overlay::-webkit-clear-button,
+  input[type="date"].opacity-0::-webkit-clear-button,
+  input[type="date"][class*="opacity-0"]::-webkit-clear-button,
+  input[type="date"].date-input-overlay::-webkit-calendar-picker-indicator,
+  input[type="date"].opacity-0::-webkit-calendar-picker-indicator,
+  input[type="date"][class*="opacity-0"]::-webkit-calendar-picker-indicator {
+    display: none !important;
+    opacity: 0 !important;
+    color: transparent !important;
   }
 }
 

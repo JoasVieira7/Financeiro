@@ -51,33 +51,22 @@ export interface ParseResult {
   parseError?: string;
 }
 
-// Mapeamento flexível de categorias comuns por palavras-chave
-export function inferCategory(description: string): TransactionCategory {
-  const d = description.toLowerCase();
-  if (/mercado|supermercado|restaurante|lanchonete|ifood|padaria|almoço|jantar|café|açougue|bar|pizza|hambúrguer/.test(d)) {
-    return 'Alimentação';
-  }
-  if (/uber|99|combustível|posto|gasolina|estacionamento|pedágio|metrô|ônibus|passagem|voo|aérea|oficina|ipva/.test(d)) {
-    return 'Transporte';
-  }
-  if (/farmácia|drogaria|médico|hospital|laboratório|consulta|dentista|exame|psicólog|remédio|saúde/.test(d)) {
-    return 'Saúde';
-  }
-  if (/aluguel|condomínio|iptu|imobiliária|energia|enel|copel|cemig|luz|água|sanepar|sabesp|gás/.test(d)) {
-    return 'Moradia';
-  }
-  if (/internet|celular|vivo|claro|tim|fibra|netflix|spotify|streaming|amazon prime|disney|academia|cinema|show|viagem|hotel/.test(d)) {
-    return 'Lazer';
-  }
-  if (/curso|faculdade|escola|livro|livraria|educação/.test(d)) {
-    return 'Contas';
-  }
-  return 'Compras';
+import { inferCategoryIntelligently, CategoryConfidence } from './categorizer';
+
+// Mapeamento inteligente de categorias comuns por estabelecimentos e palavras-chave (Etapa 34.3)
+export function inferCategory(description: string, userId?: string): TransactionCategory {
+  return inferCategoryIntelligently(description, userId).category;
 }
 
 // Mapeamento de categorias de extratos e faturas de bancos (ex: Nubank, Inter, Itaú, etc.)
-export function mapBankCategory(cat: string): TransactionCategory {
+export function mapBankCategory(cat: string, description?: string): TransactionCategory {
+  // Se a descrição for Mercado Livre, prevalece Compras mesmo que o banco envie tag genérica
+  if (description && /mercado\s*livre|mercadolivre|mercado\s*pago|mercadopago/i.test(description)) {
+    return 'Compras';
+  }
+
   const c = cat.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+  if (/mercado\s*livre|mercadolivre|mercado\s*pago|mercadopago/.test(c)) return 'Compras';
   if (/alimenta|restaurante|mercado|supermercado|comida|lanche|padaria|ifood|acougue|cafe/.test(c)) return 'Alimentação';
   if (/transporte|uber|99|taxi|combustivel|posto|estacionamento|pedagio|viagem|passagem|metro|onibus|aerea/.test(c)) return 'Transporte';
   if (/saude|farmacia|drogaria|hospital|consulta|exame|dentista|medico|remedio/.test(c)) return 'Saúde';

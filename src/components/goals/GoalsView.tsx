@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useFinance } from '../../context/FinanceContext';
 import { useAuth } from '../../context/AuthContext';
 import { formatCurrency } from '../../lib/formatters';
@@ -113,6 +113,7 @@ export const GoalsView: React.FC = () => {
   const [deadline, setDeadline] = useState('');
   const [newPeriodType, setNewPeriodType] = useState<GoalPeriodType>('custom');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const addDeadlineRef = useRef<HTMLInputElement>(null);
 
   // Contribute/Withdraw Modal
   const [activeGoalForAction, setActiveGoalForAction] = useState<SavingsGoal | null>(null);
@@ -132,6 +133,7 @@ export const GoalsView: React.FC = () => {
   const [editPeriodType, setEditPeriodType] = useState<GoalPeriodType>('custom');
   const [editErrorMsg, setEditErrorMsg] = useState<string | null>(null);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const editDeadlineRef = useRef<HTMLInputElement>(null);
 
   // Edit Category Limit Modal
   const [editingCategory, setEditingCategory] = useState<{
@@ -792,12 +794,21 @@ export const GoalsView: React.FC = () => {
                     <label className="text-xs font-bold text-slate-700 block mb-1">
                       Prazo Estimado (Opcional)
                     </label>
-                    <div className="relative w-full rounded-2xl border border-slate-200 bg-white overflow-hidden transition-all focus-within:border-[#00D26A]">
+                    <div
+                      onClick={() => {
+                        try {
+                          addDeadlineRef.current?.showPicker?.();
+                        } catch {
+                          addDeadlineRef.current?.focus();
+                        }
+                      }}
+                      className="relative w-full rounded-2xl border border-slate-200 bg-white overflow-hidden transition-all focus-within:border-[#00D26A] cursor-pointer"
+                    >
                       {/* Visual alinhado com ícone e texto formatado */}
                       <div className="w-full flex items-center justify-between text-xs px-3.5 py-3 pointer-events-none pr-10">
                         <div className="flex items-center gap-2 min-w-0">
                           <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
-                          <span className={deadline ? 'text-slate-900 font-medium truncate' : 'text-slate-400 truncate'}>
+                          <span className={deadline ? 'text-slate-900 font-semibold truncate' : 'text-slate-400 truncate'}>
                             {deadline ? formatDeadlineDisplay(deadline) : 'Selecionar data de conclusão'}
                           </span>
                         </div>
@@ -805,10 +816,11 @@ export const GoalsView: React.FC = () => {
 
                       {/* Input nativo que captura o toque de forma contida e invisível */}
                       <input
+                        ref={addDeadlineRef}
                         type="date"
                         value={deadline}
                         onChange={e => setDeadline(e.target.value)}
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                        className="date-input-overlay absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10 bg-transparent"
                         aria-label="Prazo Estimado (Opcional)"
                       />
 
@@ -943,12 +955,21 @@ export const GoalsView: React.FC = () => {
                   <label className="text-xs font-bold text-slate-700 block mb-1">
                     Prazo Estimado (Opcional)
                   </label>
-                  <div className="relative w-full rounded-2xl border border-slate-200 bg-white overflow-hidden transition-all focus-within:border-[#00D26A]">
+                  <div
+                    onClick={() => {
+                      try {
+                        editDeadlineRef.current?.showPicker?.();
+                      } catch {
+                        editDeadlineRef.current?.focus();
+                      }
+                    }}
+                    className="relative w-full rounded-2xl border border-slate-200 bg-white overflow-hidden transition-all focus-within:border-[#00D26A] cursor-pointer"
+                  >
                     {/* Visual alinhado com ícone e texto formatado */}
                     <div className="w-full flex items-center justify-between text-xs px-3.5 py-3 pointer-events-none pr-10">
                       <div className="flex items-center gap-2 min-w-0">
                         <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
-                        <span className={editDeadline ? 'text-slate-900 font-medium truncate' : 'text-slate-400 truncate'}>
+                        <span className={editDeadline ? 'text-slate-900 font-semibold truncate' : 'text-slate-400 truncate'}>
                           {editDeadline ? formatDeadlineDisplay(editDeadline) : 'Selecionar data de conclusão'}
                         </span>
                       </div>
@@ -956,10 +977,11 @@ export const GoalsView: React.FC = () => {
 
                     {/* Input nativo que captura o toque de forma contida e invisível */}
                     <input
+                      ref={editDeadlineRef}
                       type="date"
                       value={editDeadline}
                       onChange={e => setEditDeadline(e.target.value)}
-                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                      className="date-input-overlay absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10 bg-transparent"
                       aria-label="Prazo Estimado (Opcional)"
                     />
 

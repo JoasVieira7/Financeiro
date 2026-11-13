@@ -3,6 +3,7 @@ import { Navbar } from './components/layout/Navbar';
 import { BottomTabs, TabType } from './components/layout/BottomTabs';
 import { BalanceOverview } from './components/home/BalanceOverview';
 import { MonthlyGoalCard } from './components/home/WeeklyGoalCard';
+import { SmartTipsCard } from './components/home/SmartTipsCard';
 import { CategoryBreakdownCard } from './components/home/CategoryBreakdownCard';
 import { RecentTransactions } from './components/home/RecentTransactions';
 import { GoalsView } from './components/goals/GoalsView';
@@ -109,6 +110,9 @@ export const App: React.FC = () => {
             >
               <span>+ Registrar movimentação</span>
             </button>
+
+            {/* 3.5. Dicas de Economia & Inteligência Financeira (Etapa 34.3) */}
+            <SmartTipsCard onNavigateTab={handleTabChange} />
 
             {/* 4. Resumo de Gastos (Donut Chart) */}
             <CategoryBreakdownCard onGoToReports={() => handleTabChange('reports')} />
